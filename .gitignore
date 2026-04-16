@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+.ipynb_checkpoints/
+data/*.csv
+data/*.shp
+data/*.geojson
+!data/README.md
+.DS_Store

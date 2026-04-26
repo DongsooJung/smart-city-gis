@@ -1,10 +1,65 @@
+# Python
 __pycache__/
 *.py[cod]
-.env
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Virtual env
 .venv/
+venv/
+env/
+
+# Jupyter
 .ipynb_checkpoints/
-data/*.csv
-data/*.shp
-data/*.geojson
-!data/README.md
+
+# Environment
+.env
+.env.local
+
+# Data
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/README.md
+data/interim/*
+data/processed/*
+!data/processed/README.md
+
+# Spatial data
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.gpkg
+
+# Big data
+*.parquet
+*.feather
+*.pkl
+*.h5
+
+# Results
+results/figures/*.png
+results/figures/*.pdf
+results/*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
 .DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+*.log
+logs/

@@ -30,11 +30,16 @@ __email__ = "jds068888@gmail.com"
 
 from smartcity_gis.walkability import compute_walkability  # noqa: F401
 from smartcity_gis.accessibility import AccessibilityAnalyzer  # noqa: F401
-from smartcity_gis.api_clients import NSDIClient, VWorldClient  # noqa: F401
+from smartcity_gis.api_clients import (  # noqa: F401
+    NSDIClient,
+    VWorldClient,
+    OpenDartClient,
+)
 
 __all__ = [
     "compute_walkability",
     "AccessibilityAnalyzer",
     "NSDIClient",
     "VWorldClient",
+    "OpenDartClient",
 ]

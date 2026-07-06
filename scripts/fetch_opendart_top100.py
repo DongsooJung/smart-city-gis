@@ -54,6 +54,37 @@ def load_seed(path: Path) -> pd.DataFrame:
     return df
 
 
+def build_top_dataframe(client, seed, year: int, quarter: int, top: int) -> pd.DataFrame:
+    """시드 종목 → 매출액 기준 상위 N개 재무 요약 DataFrame(순위·억원 파생 포함).
+
+    OpenDartClient를 통해 조회하며, CLI와 대시보드 데이터 생성기가 함께 사용한다.
+    조회 결과가 없으면 빈 DataFrame을 반환한다.
+    """
+    fin = client.get_financials_by_stock(
+        seed["stock_code"].tolist(), year=year, quarter=quarter
+    )
+    if fin.empty:
+        return fin
+
+    # 표시용 기업명은 시드(큐레이션한 한글명) 우선, 없으면 API 응답값 사용
+    seed_names = seed.set_index("stock_code")["corp_name"]
+    curated = fin["stock_code"].map(seed_names).fillna("").str.strip()
+    fin["corp_name"] = curated.where(curated != "", fin["corp_name"])
+
+    fin = fin[fin["revenue"].notna()].copy()
+    fin = fin.sort_values("revenue", ascending=False, na_position="last")
+    fin = fin.head(top).reset_index(drop=True)
+    fin.insert(0, "rank", fin.index + 1)
+
+    # 억원 단위 파생 컬럼
+    fin["revenue_eok"] = (fin["revenue"] / EOK).round(0)
+    fin["operating_income_eok"] = (fin["operating_income"] / EOK).round(0)
+    fin["operating_margin_pct"] = (
+        fin["operating_income"] / fin["revenue"] * 100
+    ).round(1)
+    return fin
+
+
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--year", type=int, default=2026, help="사업연도 (기본 2026)")
@@ -72,35 +103,13 @@ def main(argv=None) -> int:
     logger.info("시드 기업 %d개 로드: %s", len(seed), args.seed)
 
     client = OpenDartClient(api_key=args.api_key)
-
-    fin = client.get_financials_by_stock(
-        seed["stock_code"].tolist(),
-        year=args.year,
-        quarter=args.quarter,
-    )
+    fin = build_top_dataframe(client, seed, args.year, args.quarter, args.top)
     if fin.empty:
         logger.error(
             "조회 결과가 없습니다. %d년 %d분기 보고서가 아직 제출되지 않았을 수 있습니다.",
             args.year, args.quarter,
         )
         return 1
-
-    # 표시용 기업명은 시드(큐레이션한 한글명) 우선, 없으면 API 응답값 사용
-    seed_names = seed.set_index("stock_code")["corp_name"]
-    curated = fin["stock_code"].map(seed_names).fillna("").str.strip()
-    fin["corp_name"] = curated.where(curated != "", fin["corp_name"])
-
-    fin = fin[fin["revenue"].notna()].copy()
-    fin = fin.sort_values("revenue", ascending=False, na_position="last")
-    fin = fin.head(args.top).reset_index(drop=True)
-    fin.insert(0, "rank", fin.index + 1)
-
-    # 억원 단위 파생 컬럼
-    fin["revenue_eok"] = (fin["revenue"] / EOK).round(0)
-    fin["operating_income_eok"] = (fin["operating_income"] / EOK).round(0)
-    fin["operating_margin_pct"] = (
-        fin["operating_income"] / fin["revenue"] * 100
-    ).round(1)
 
     # 콘솔 출력
     _print_table(fin, args.year, args.quarter)

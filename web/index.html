@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenDART 상위 100개 기업 · 매출액·영업이익</title>
+<style>
+  :root{
+    --plane:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+    --rev:#2a78d6; --oi:#1baf7a; --crit:#d03b3b; --warnbg:#fdf3d7; --warnink:#7a5a00; --warnbd:#f0d488;
+    --card:#ffffff;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --plane:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+      --rev:#3987e5; --oi:#199e70; --crit:#e06a6a; --warnbg:#2a2410; --warnink:#e6c766; --warnbd:#5a4d1c;
+      --card:#1f1f1e;
+    }
+  }
+  :root[data-theme=light]{
+    --plane:#f9f9f7; --surface:#fcfcfb; --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,.10);
+    --rev:#2a78d6; --oi:#1baf7a; --crit:#d03b3b; --warnbg:#fdf3d7; --warnink:#7a5a00; --warnbd:#f0d488; --card:#fff;
+  }
+  :root[data-theme=dark]{
+    --plane:#0d0d0d; --surface:#1a1a19; --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,.10);
+    --rev:#3987e5; --oi:#199e70; --crit:#e06a6a; --warnbg:#2a2410; --warnink:#e6c766; --warnbd:#5a4d1c; --card:#1f1f1e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--plane);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5;
+    -webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 20px 72px}
+  header h1{font-size:1.55rem;margin:0 0 4px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--ink2);font-size:.95rem}
+  .banner{margin:18px 0 0;padding:11px 14px;border-radius:10px;font-size:.9rem;
+    background:var(--warnbg);color:var(--warnink);border:1px solid var(--warnbd);display:flex;gap:9px;align-items:flex-start}
+  .banner b{font-weight:650}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:22px 0 26px}
+  @media(max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:15px 16px}
+  .kpi .lab{font-size:.78rem;color:var(--muted);margin-bottom:6px}
+  .kpi .val{font-size:1.5rem;font-weight:680;letter-spacing:-.02em}
+  .kpi .val small{font-size:.8rem;font-weight:500;color:var(--ink2);margin-left:3px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 20px 12px;margin-bottom:26px}
+  .card h2{font-size:1.02rem;margin:0 0 2px}
+  .card .sub{font-size:.83rem;color:var(--muted);margin:0 0 14px}
+  .legend{display:flex;gap:16px;margin:0 0 8px;font-size:.85rem;color:var(--ink2)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .chart{width:100%;overflow-x:auto}
+  svg{display:block;width:100%;height:auto;font-family:inherit}
+  .bar{cursor:default}
+  .tick text,.axlab{fill:var(--muted);font-size:11px}
+  .vlab{fill:var(--ink2);font-size:11px;font-variant-numeric:tabular-nums}
+  .name{fill:var(--ink);font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  .tblwrap{overflow-x:auto}
+  th,td{padding:8px 10px;text-align:right;white-space:nowrap}
+  th:nth-child(2),td:nth-child(2){text-align:left}
+  th{color:var(--muted);font-weight:600;font-size:.78rem;border-bottom:1px solid var(--axis);
+    position:sticky;top:0;background:var(--surface);cursor:pointer;user-select:none}
+  th.active::after{content:" ▾";color:var(--ink2)}
+  th.asc.active::after{content:" ▴"}
+  td{border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums}
+  tr:hover td{background:color-mix(in srgb,var(--ink) 4%,transparent)}
+  .rank{color:var(--muted);font-variant-numeric:tabular-nums}
+  .neg{color:var(--crit)}
+  .badge{font-size:.72rem;color:var(--ink2);border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+  .tip{position:fixed;pointer-events:none;opacity:0;transition:opacity .08s;background:var(--ink);color:var(--plane);
+    padding:7px 10px;border-radius:8px;font-size:.8rem;z-index:9;box-shadow:0 4px 14px rgba(0,0,0,.25);max-width:240px}
+  .tip b{font-weight:650}
+  .tip .r{color:var(--rev)} .tip .o{color:var(--oi)}
+  footer{color:var(--muted);font-size:.8rem;margin-top:8px}
+  footer code{background:color-mix(in srgb,var(--ink) 7%,transparent);padding:1px 5px;border-radius:4px}
+  a{color:var(--rev)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>OpenDART · 상위 100개 기업 매출액·영업이익</h1>
+    <p id="subtitle">2026년 1분기 · 매출액 기준 상위 100개 (단위: 억원)</p>
+  </header>
+  <div class="banner" id="banner">
+    <span>⚠️</span>
+    <div><b>샘플 데이터입니다.</b> 이 세션의 이그레스 정책이 <code>opendart.fss.or.kr</code> 접속을 차단해 실제 수치를 넣지 못했습니다.
+    OpenDART가 허용된 환경에서 <code>python scripts/build_dashboard_data.py</code> 를 실행해 <code>web/data.json</code>을 만든 뒤 재배포하면 이 배너가 사라지고 실데이터로 표시됩니다.</div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card">
+    <h2>매출액·영업이익 상위 15개 기업</h2>
+    <p class="sub" id="chartsub"></p>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--rev)"></i>매출액</span>
+      <span><i class="sw" style="background:var(--oi)"></i>영업이익</span>
+    </div>
+    <div class="chart"><svg id="chart" preserveAspectRatio="xMinYMin meet" role="img" aria-label="상위 15개 기업 매출액·영업이익 막대그래프"></svg></div>
+  </div>
+
+  <div class="card">
+    <h2>전체 순위표</h2>
+    <p class="sub">열 제목을 클릭하면 정렬됩니다.</p>
+    <div class="tblwrap"><table id="tbl">
+      <thead><tr>
+        <th data-k="rank" data-num="1" class="active asc">#</th>
+        <th data-k="corp_name">기업명</th>
+        <th data-k="stock_code">종목코드</th>
+        <th data-k="revenue_eok" data-num="1">매출액 (억원)</th>
+        <th data-k="operating_income_eok" data-num="1">영업이익 (억원)</th>
+        <th data-k="operating_margin_pct" data-num="1">영업이익률</th>
+        <th data-k="fs_div">재무제표</th>
+      </tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+
+  <footer id="foot"></footer>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const SAMPLE = {"meta": {"year": 2026, "quarter": 1, "count": 104, "source": "OpenDART (금융감독원 전자공시)", "sample": true, "generated_at": "SAMPLE", "unit": "억원"}, "rows": [{"rank": 1, "corp_name": "삼성전자", "stock_code": "005930", "fs_div": "CFS", "revenue_eok": 809750, "operating_income_eok": 105268, "operating_margin_pct": 13.0}, {"rank": 2, "corp_name": "SK하이닉스", "stock_code": "000660", "fs_div": "CFS", "revenue_eok": 807420, "operating_income_eok": 95276, "operating_margin_pct": 11.8}, {"rank": 3, "corp_name": "LG에너지솔루션", "stock_code": "373220", "fs_div": "CFS", "revenue_eok": 717820, "operating_income_eok": 110544, "operating_margin_pct": 15.4}, {"rank": 4, "corp_name": "현대차", "stock_code": "005380", "fs_div": "CFS", "revenue_eok": 661230, "operating_income_eok": 13225, "operating_margin_pct": 2.0}, {"rank": 5, "corp_name": "삼성바이오로직스", "stock_code": "207940", "fs_div": "CFS", "revenue_eok": 652320, "operating_income_eok": 99805, "operating_margin_pct": 15.3}, {"rank": 6, "corp_name": "기아", "stock_code": "000270", "fs_div": "CFS", "revenue_eok": 637070, "operating_income_eok": 26120, "operating_margin_pct": 4.1}, {"rank": 7, "corp_name": "NAVER", "stock_code": "035420", "fs_div": "CFS", "revenue_eok": 571260, "operating_income_eok": 103969, "operating_margin_pct": 18.2}, {"rank": 8, "corp_name": "셀트리온", "stock_code": "068270", "fs_div": "CFS", "revenue_eok": 564900, "operating_income_eok": 27680, "operating_margin_pct": 4.9}, {"rank": 9, "corp_name": "POSCO홀딩스", "stock_code": "005490", "fs_div": "CFS", "revenue_eok": 547630, "operating_income_eok": 29572, "operating_margin_pct": 5.4}, {"rank": 10, "corp_name": "삼성SDI", "stock_code": "006400", "fs_div": "CFS", "revenue_eok": 540620, "operating_income_eok": 79471, "operating_margin_pct": 14.7}, {"rank": 11, "corp_name": "LG화학", "stock_code": "051910", "fs_div": "CFS", "revenue_eok": 486500, "operating_income_eok": 47677, "operating_margin_pct": 9.8}, {"rank": 12, "corp_name": "현대모비스", "stock_code": "012330", "fs_div": "CFS", "revenue_eok": 484280, "operating_income_eok": -4843, "operating_margin_pct": -1.0}, {"rank": 13, "corp_name": "삼성물산", "stock_code": "028260", "fs_div": "CFS", "revenue_eok": 483830, "operating_income_eok": -28546, "operating_margin_pct": -5.9}, {"rank": 14, "corp_name": "KB금융", "stock_code": "105560", "fs_div": "CFS", "revenue_eok": 432410, "operating_income_eok": 16864, "operating_margin_pct": 3.9}, {"rank": 15, "corp_name": "카카오", "stock_code": "035720", "fs_div": "CFS", "revenue_eok": 394070, "operating_income_eok": 41771, "operating_margin_pct": 10.6}, {"rank": 16, "corp_name": "신한지주", "stock_code": "055550", "fs_div": "CFS", "revenue_eok": 389110, "operating_income_eok": 47082, "operating_margin_pct": 12.1}, {"rank": 17, "corp_name": "하나금융지주", "stock_code": "086790", "fs_div": "CFS", "revenue_eok": 385480, "operating_income_eok": 70157, "operating_margin_pct": 18.2}, {"rank": 18, "corp_name": "한국전력", "stock_code": "015760", "fs_div": "CFS", "revenue_eok": 345350, "operating_income_eok": 20721, "operating_margin_pct": 6.0}, {"rank": 19, "corp_name": "삼성화재", "stock_code": "000810", "fs_div": "CFS", "revenue_eok": 344120, "operating_income_eok": 43015, "operating_margin_pct": 12.5}, {"rank": 20, "corp_name": "메리츠금융지주", "stock_code": "138040", "fs_div": "CFS", "revenue_eok": 330660, "operating_income_eok": 7605, "operating_margin_pct": 2.3}, {"rank": 21, "corp_name": "삼성생명", "stock_code": "032830", "fs_div": "CFS", "revenue_eok": 329510, "operating_income_eok": 6590, "operating_margin_pct": 2.0}, {"rank": 22, "corp_name": "고려아연", "stock_code": "010130", "fs_div": "CFS", "revenue_eok": 294240, "operating_income_eok": 22951, "operating_margin_pct": 7.8}, {"rank": 23, "corp_name": "HMM", "stock_code": "011200", "fs_div": "CFS", "revenue_eok": 289740, "operating_income_eok": 35348, "operating_margin_pct": 12.2}, {"rank": 24, "corp_name": "크래프톤", "stock_code": "259960", "fs_div": "CFS", "revenue_eok": 288430, "operating_income_eok": 53360, "operating_margin_pct": 18.5}, {"rank": 25, "corp_name": "SK이노베이션", "stock_code": "096770", "fs_div": "CFS", "revenue_eok": 260480, "operating_income_eok": 32560, "operating_margin_pct": 12.5}, {"rank": 26, "corp_name": "우리금융지주", "stock_code": "316140", "fs_div": "CFS", "revenue_eok": 235270, "operating_income_eok": -4470, "operating_margin_pct": -1.9}, {"rank": 27, "corp_name": "SK", "stock_code": "034730", "fs_div": "CFS", "revenue_eok": 233580, "operating_income_eok": 15883, "operating_margin_pct": 6.8}, {"rank": 28, "corp_name": "SK텔레콤", "stock_code": "017670", "fs_div": "CFS", "revenue_eok": 232680, "operating_income_eok": 18382, "operating_margin_pct": 7.9}, {"rank": 29, "corp_name": "삼성에스디에스", "stock_code": "018260", "fs_div": "CFS", "revenue_eok": 210140, "operating_income_eok": 19963, "operating_margin_pct": 9.5}, {"rank": 30, "corp_name": "포스코퓨처엠", "stock_code": "003670", "fs_div": "CFS", "revenue_eok": 208410, "operating_income_eok": 41057, "operating_margin_pct": 19.7}, {"rank": 31, "corp_name": "삼성전기", "stock_code": "009150", "fs_div": "CFS", "revenue_eok": 200300, "operating_income_eok": 18628, "operating_margin_pct": 9.3}, {"rank": 32, "corp_name": "KT", "stock_code": "030200", "fs_div": "CFS", "revenue_eok": 199920, "operating_income_eok": -13794, "operating_margin_pct": -6.9}, {"rank": 33, "corp_name": "S-Oil", "stock_code": "010950", "fs_div": "CFS", "revenue_eok": 177690, "operating_income_eok": 8174, "operating_margin_pct": 4.6}, {"rank": 34, "corp_name": "LG이노텍", "stock_code": "011070", "fs_div": "CFS", "revenue_eok": 173020, "operating_income_eok": 173, "operating_margin_pct": 0.1}, {"rank": 35, "corp_name": "기업은행", "stock_code": "024110", "fs_div": "CFS", "revenue_eok": 171640, "operating_income_eok": 9612, "operating_margin_pct": 5.6}, {"rank": 36, "corp_name": "KT&G", "stock_code": "033780", "fs_div": "CFS", "revenue_eok": 157000, "operating_income_eok": 17427, "operating_margin_pct": 11.1}, {"rank": 37, "corp_name": "SK스퀘어", "stock_code": "402340", "fs_div": "CFS", "revenue_eok": 141690, "operating_income_eok": 20970, "operating_margin_pct": 14.8}, {"rank": 38, "corp_name": "카카오뱅크", "stock_code": "323410", "fs_div": "CFS", "revenue_eok": 140770, "operating_income_eok": 16611, "operating_margin_pct": 11.8}, {"rank": 39, "corp_name": "LG전자", "stock_code": "066570", "fs_div": "CFS", "revenue_eok": 139580, "operating_income_eok": 23170, "operating_margin_pct": 16.6}, {"rank": 40, "corp_name": "한화오션", "stock_code": "042660", "fs_div": "CFS", "revenue_eok": 128510, "operating_income_eok": 6040, "operating_margin_pct": 4.7}, {"rank": 41, "corp_name": "한화에어로스페이스", "stock_code": "012450", "fs_div": "CFS", "revenue_eok": 125490, "operating_income_eok": 10039, "operating_margin_pct": 8.0}, {"rank": 42, "corp_name": "삼성중공업", "stock_code": "010140", "fs_div": "CFS", "revenue_eok": 121390, "operating_income_eok": 8376, "operating_margin_pct": 6.9}, {"rank": 43, "corp_name": "HD현대일렉트릭", "stock_code": "267260", "fs_div": "CFS", "revenue_eok": 120950, "operating_income_eok": -484, "operating_margin_pct": -0.4}, {"rank": 44, "corp_name": "한국가스공사", "stock_code": "036460", "fs_div": "CFS", "revenue_eok": 107160, "operating_income_eok": 15753, "operating_margin_pct": 14.7}, {"rank": 45, "corp_name": "LG생활건강", "stock_code": "051900", "fs_div": "CFS", "revenue_eok": 103200, "operating_income_eok": 7637, "operating_margin_pct": 7.4}, {"rank": 46, "corp_name": "아모레퍼시픽", "stock_code": "090430", "fs_div": "CFS", "revenue_eok": 102020, "operating_income_eok": -10610, "operating_margin_pct": -10.4}, {"rank": 47, "corp_name": "넷마블", "stock_code": "251270", "fs_div": "CFS", "revenue_eok": 94740, "operating_income_eok": 7011, "operating_margin_pct": 7.4}, {"rank": 48, "corp_name": "유한양행", "stock_code": "000100", "fs_div": "CFS", "revenue_eok": 86000, "operating_income_eok": 11610, "operating_margin_pct": 13.5}, {"rank": 49, "corp_name": "엔씨소프트", "stock_code": "036570", "fs_div": "CFS", "revenue_eok": 84430, "operating_income_eok": 422, "operating_margin_pct": 0.5}, {"rank": 50, "corp_name": "하이브", "stock_code": "352820", "fs_div": "CFS", "revenue_eok": 84040, "operating_income_eok": 2689, "operating_margin_pct": 3.2}, {"rank": 51, "corp_name": "한미약품", "stock_code": "128940", "fs_div": "CFS", "revenue_eok": 78640, "operating_income_eok": 10774, "operating_margin_pct": 13.7}, {"rank": 52, "corp_name": "호텔신라", "stock_code": "008770", "fs_div": "CFS", "revenue_eok": 75360, "operating_income_eok": 11379, "operating_margin_pct": 15.1}, {"rank": 53, "corp_name": "이마트", "stock_code": "139480", "fs_div": "CFS", "revenue_eok": 73340, "operating_income_eok": 1393, "operating_margin_pct": 1.9}, {"rank": 54, "corp_name": "SK바이오사이언스", "stock_code": "302440", "fs_div": "CFS", "revenue_eok": 73170, "operating_income_eok": 9951, "operating_margin_pct": 13.6}, {"rank": 55, "corp_name": "현대백화점", "stock_code": "069960", "fs_div": "CFS", "revenue_eok": 64540, "operating_income_eok": 1614, "operating_margin_pct": 2.5}, {"rank": 56, "corp_name": "한화솔루션", "stock_code": "009830", "fs_div": "CFS", "revenue_eok": 61530, "operating_income_eok": 3630, "operating_margin_pct": 5.9}, {"rank": 57, "corp_name": "금호석유", "stock_code": "011780", "fs_div": "CFS", "revenue_eok": 60620, "operating_income_eok": 4122, "operating_margin_pct": 6.8}, {"rank": 58, "corp_name": "현대건설", "stock_code": "000720", "fs_div": "CFS", "revenue_eok": 57260, "operating_income_eok": 10135, "operating_margin_pct": 17.7}, {"rank": 59, "corp_name": "GS건설", "stock_code": "006360", "fs_div": "CFS", "revenue_eok": 52190, "operating_income_eok": 4697, "operating_margin_pct": 9.0}, {"rank": 60, "corp_name": "삼성엔지니어링", "stock_code": "028050", "fs_div": "CFS", "revenue_eok": 50790, "operating_income_eok": 8126, "operating_margin_pct": 16.0}, {"rank": 61, "corp_name": "대우건설", "stock_code": "047040", "fs_div": "CFS", "revenue_eok": 50750, "operating_income_eok": 3958, "operating_margin_pct": 7.8}, {"rank": 62, "corp_name": "HDC현대산업개발", "stock_code": "294870", "fs_div": "CFS", "revenue_eok": 48100, "operating_income_eok": -529, "operating_margin_pct": -1.1}, {"rank": 63, "corp_name": "CJ", "stock_code": "001040", "fs_div": "CFS", "revenue_eok": 45130, "operating_income_eok": 6228, "operating_margin_pct": 13.8}, {"rank": 64, "corp_name": "현대제철", "stock_code": "004020", "fs_div": "CFS", "revenue_eok": 44230, "operating_income_eok": 1283, "operating_margin_pct": 2.9}, {"rank": 65, "corp_name": "CJ제일제당", "stock_code": "097950", "fs_div": "CFS", "revenue_eok": 44170, "operating_income_eok": 5080, "operating_margin_pct": 11.5}, {"rank": 66, "corp_name": "하이트진로", "stock_code": "000080", "fs_div": "CFS", "revenue_eok": 38850, "operating_income_eok": 6449, "operating_margin_pct": 16.6}, {"rank": 67, "corp_name": "롯데웰푸드", "stock_code": "280360", "fs_div": "CFS", "revenue_eok": 36700, "operating_income_eok": 367, "operating_margin_pct": 1.0}, {"rank": 68, "corp_name": "오리온", "stock_code": "271560", "fs_div": "CFS", "revenue_eok": 36050, "operating_income_eok": 4759, "operating_margin_pct": 13.2}, {"rank": 69, "corp_name": "농심", "stock_code": "004370", "fs_div": "CFS", "revenue_eok": 34670, "operating_income_eok": 1768, "operating_margin_pct": 5.1}, {"rank": 70, "corp_name": "현대위아", "stock_code": "011210", "fs_div": "CFS", "revenue_eok": 31650, "operating_income_eok": 6045, "operating_margin_pct": 19.1}, {"rank": 71, "corp_name": "롯데칠성", "stock_code": "005300", "fs_div": "CFS", "revenue_eok": 30810, "operating_income_eok": 1263, "operating_margin_pct": 4.1}, {"rank": 72, "corp_name": "한국타이어앤테크놀로지", "stock_code": "161390", "fs_div": "CFS", "revenue_eok": 30570, "operating_income_eok": 2232, "operating_margin_pct": 7.3}, {"rank": 73, "corp_name": "HL만도", "stock_code": "204320", "fs_div": "CFS", "revenue_eok": 29380, "operating_income_eok": 3819, "operating_margin_pct": 13.0}, {"rank": 74, "corp_name": "CJ대한통운", "stock_code": "000120", "fs_div": "CFS", "revenue_eok": 26950, "operating_income_eok": 2237, "operating_margin_pct": 8.3}, {"rank": 75, "corp_name": "현대글로비스", "stock_code": "086280", "fs_div": "CFS", "revenue_eok": 26710, "operating_income_eok": 2724, "operating_margin_pct": 10.2}, {"rank": 76, "corp_name": "한진칼", "stock_code": "180640", "fs_div": "CFS", "revenue_eok": 26530, "operating_income_eok": -478, "operating_margin_pct": -1.8}, {"rank": 77, "corp_name": "대한항공", "stock_code": "003490", "fs_div": "CFS", "revenue_eok": 23380, "operating_income_eok": 1426, "operating_margin_pct": 6.1}, {"rank": 78, "corp_name": "HD한국조선해양", "stock_code": "009540", "fs_div": "CFS", "revenue_eok": 21920, "operating_income_eok": 2499, "operating_margin_pct": 11.4}, {"rank": 79, "corp_name": "한국항공우주", "stock_code": "047810", "fs_div": "CFS", "revenue_eok": 21470, "operating_income_eok": 2533, "operating_margin_pct": 11.8}, {"rank": 80, "corp_name": "HD현대", "stock_code": "267250", "fs_div": "CFS", "revenue_eok": 21030, "operating_income_eok": 3975, "operating_margin_pct": 18.9}, {"rank": 81, "corp_name": "두산에너빌리티", "stock_code": "034020", "fs_div": "CFS", "revenue_eok": 19160, "operating_income_eok": 1150, "operating_margin_pct": 6.0}, {"rank": 82, "corp_name": "HD현대인프라코어", "stock_code": "042670", "fs_div": "CFS", "revenue_eok": 18750, "operating_income_eok": 1856, "operating_margin_pct": 9.9}, {"rank": 83, "corp_name": "두산밥캣", "stock_code": "241560", "fs_div": "CFS", "revenue_eok": 18440, "operating_income_eok": 461, "operating_margin_pct": 2.5}, {"rank": 84, "corp_name": "두산", "stock_code": "000150", "fs_div": "CFS", "revenue_eok": 17910, "operating_income_eok": 269, "operating_margin_pct": 1.5}, {"rank": 85, "corp_name": "OCI홀딩스", "stock_code": "010060", "fs_div": "CFS", "revenue_eok": 16110, "operating_income_eok": 1675, "operating_margin_pct": 10.4}, {"rank": 86, "corp_name": "KCC", "stock_code": "002380", "fs_div": "CFS", "revenue_eok": 16060, "operating_income_eok": 2923, "operating_margin_pct": 18.2}, {"rank": 87, "corp_name": "롯데지주", "stock_code": "004990", "fs_div": "CFS", "revenue_eok": 15900, "operating_income_eok": 1813, "operating_margin_pct": 11.4}, {"rank": 88, "corp_name": "롯데쇼핑", "stock_code": "023530", "fs_div": "CFS", "revenue_eok": 14080, "operating_income_eok": 1830, "operating_margin_pct": 13.0}, {"rank": 89, "corp_name": "대웅제약", "stock_code": "069620", "fs_div": "CFS", "revenue_eok": 13110, "operating_income_eok": -197, "operating_margin_pct": -1.5}, {"rank": 90, "corp_name": "종근당", "stock_code": "185750", "fs_div": "CFS", "revenue_eok": 12820, "operating_income_eok": -487, "operating_margin_pct": -3.8}, {"rank": 91, "corp_name": "LG유플러스", "stock_code": "032640", "fs_div": "CFS", "revenue_eok": 12770, "operating_income_eok": 1073, "operating_margin_pct": 8.4}, {"rank": 92, "corp_name": "LIG넥스원", "stock_code": "079550", "fs_div": "CFS", "revenue_eok": 11580, "operating_income_eok": 2223, "operating_margin_pct": 19.2}, {"rank": 93, "corp_name": "제일기획", "stock_code": "030000", "fs_div": "CFS", "revenue_eok": 11440, "operating_income_eok": 1030, "operating_margin_pct": 9.0}, {"rank": 94, "corp_name": "강원랜드", "stock_code": "035250", "fs_div": "CFS", "revenue_eok": 11130, "operating_income_eok": 1503, "operating_margin_pct": 13.5}, {"rank": 95, "corp_name": "현대로템", "stock_code": "064350", "fs_div": "CFS", "revenue_eok": 10890, "operating_income_eok": 784, "operating_margin_pct": 7.2}, {"rank": 96, "corp_name": "LS ELECTRIC", "stock_code": "010120", "fs_div": "CFS", "revenue_eok": 9700, "operating_income_eok": 504, "operating_margin_pct": 5.2}, {"rank": 97, "corp_name": "LS", "stock_code": "006260", "fs_div": "CFS", "revenue_eok": 9550, "operating_income_eok": 430, "operating_margin_pct": 4.5}, {"rank": 98, "corp_name": "LX인터내셔널", "stock_code": "001120", "fs_div": "CFS", "revenue_eok": 9510, "operating_income_eok": 67, "operating_margin_pct": 0.7}, {"rank": 99, "corp_name": "SKC", "stock_code": "011790", "fs_div": "CFS", "revenue_eok": 8490, "operating_income_eok": 1138, "operating_margin_pct": 13.4}, {"rank": 100, "corp_name": "DL이앤씨", "stock_code": "375500", "fs_div": "CFS", "revenue_eok": 7850, "operating_income_eok": 950, "operating_margin_pct": 12.1}, {"rank": 101, "corp_name": "DL", "stock_code": "000210", "fs_div": "CFS", "revenue_eok": 7770, "operating_income_eok": 1119, "operating_margin_pct": 14.4}, {"rank": 102, "corp_name": "코오롱인더", "stock_code": "120110", "fs_div": "CFS", "revenue_eok": 7680, "operating_income_eok": 1198, "operating_margin_pct": 15.6}, {"rank": 103, "corp_name": "HD현대중공업", "stock_code": "329180", "fs_div": "CFS", "revenue_eok": 6990, "operating_income_eok": 168, "operating_margin_pct": 2.4}, {"rank": 104, "corp_name": "HD현대미포", "stock_code": "010620", "fs_div": "CFS", "revenue_eok": 6720, "operating_income_eok": 60, "operating_margin_pct": 0.9}]};
+const fmt = n => n==null ? "–" : n.toLocaleString("ko-KR");
+const won = eok => { // 억원 → 조/억 표기
+  if(eok==null) return "–";
+  const jo = eok/10000;
+  return jo>=1 ? jo.toLocaleString("ko-KR",{maximumFractionDigits:1})+"조" : eok.toLocaleString("ko-KR")+"억";
+};
+
+function render(data){
+  const rows = data.rows.slice();
+  const meta = data.meta||{};
+  document.getElementById("subtitle").textContent =
+    `${meta.year||""}년 ${meta.quarter||""}분기 · 매출액 기준 상위 ${meta.count||rows.length}개 (단위: 억원)`;
+  document.getElementById("banner").style.display = meta.sample ? "flex" : "none";
+
+  // KPIs
+  const totRev = rows.reduce((s,r)=>s+(r.revenue_eok||0),0);
+  const totOi  = rows.reduce((s,r)=>s+(r.operating_income_eok||0),0);
+  const margins = rows.map(r=>r.operating_margin_pct).filter(v=>v!=null).sort((a,b)=>a-b);
+  const medMargin = margins.length? margins[Math.floor(margins.length/2)] : null;
+  const kpis = [
+    ["조회 기업 수", rows.length+"", "개"],
+    ["합계 매출액", won(totRev), ""],
+    ["합계 영업이익", won(totOi), ""],
+    ["영업이익률(중앙값)", (medMargin==null?"–":medMargin.toFixed(1)), "%"],
+  ];
+  document.getElementById("kpis").innerHTML = kpis.map(k=>
+    `<div class="kpi"><div class="lab">${k[0]}</div><div class="val">${k[1]}<small>${k[2]}</small></div></div>`).join("");
+
+  drawChart(rows.slice(0,15));
+  buildTable(rows);
+
+  document.getElementById("foot").innerHTML =
+    `데이터 출처: ${meta.source||"OpenDART"} · ${meta.sample?"샘플(비실측)":"생성 "+(meta.generated_at||"")} · `+
+    `순위는 매출액 기준. 손익계산서 계정은 분기 누적 금액이며 연결(CFS) 우선.`;
+}
+
+function drawChart(rows){
+  const svg = document.getElementById("chart");
+  const W=1040, rowH=34, padT=8, padB=26, padL=132, padR=64;
+  const H = padT + rows.length*rowH + padB;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const maxV = Math.max(...rows.map(r=>Math.max(r.revenue_eok||0, r.operating_income_eok||0)));
+  const x = v => padL + (Math.max(0,v)/maxV)*(W-padL-padR);
+  const NS="http://www.w3.org/2000/svg";
+  let out="";
+  // gridlines + x ticks
+  const ticks=4;
+  for(let i=0;i<=ticks;i++){
+    const v=maxV*i/ticks, gx=x(v);
+    out+=`<line x1="${gx}" y1="${padT}" x2="${gx}" y2="${H-padB}" stroke="var(--grid)" stroke-width="1"/>`;
+    out+=`<text class="tick" x="${gx}" y="${H-padB+15}" text-anchor="middle">${won(Math.round(v))}</text>`;
+  }
+  out+=`<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H-padB}" stroke="var(--axis)" stroke-width="1"/>`;
+  rows.forEach((r,i)=>{
+    const yTop = padT + i*rowH;
+    const bh=10, gap=2;
+    const yR=yTop+rowH/2-bh-gap/2, yO=yTop+rowH/2+gap/2;
+    const wR=x(r.revenue_eok)-padL, wO=x(r.operating_income_eok)-padL;
+    const neg = (r.operating_income_eok||0)<0;
+    out+=`<text class="name" x="${padL-10}" y="${yTop+rowH/2+4}" text-anchor="end">${escapeHtml(r.corp_name)}</text>`;
+    out+=`<rect class="bar" data-i="${i}" x="${padL}" y="${yR}" width="${Math.max(0,wR)}" height="${bh}" rx="4" fill="var(--rev)"/>`;
+    out+=`<rect class="bar" data-i="${i}" x="${padL}" y="${yO}" width="${Math.max(0,wO)}" height="${bh}" rx="4" fill="${neg?'var(--crit)':'var(--oi)'}"/>`;
+    out+=`<text class="vlab" x="${x(r.revenue_eok)+6}" y="${yR+bh}" >${won(r.revenue_eok)}</text>`;
+  });
+  svg.innerHTML=out;
+  // hover
+  const tip=document.getElementById("tip");
+  svg.querySelectorAll(".bar").forEach(b=>{
+    b.addEventListener("mousemove",e=>{
+      const r=rows[+b.dataset.i];
+      tip.innerHTML=`<b>${escapeHtml(r.corp_name)}</b> · ${r.stock_code}<br>`+
+        `<span class="r">매출액</span> ${fmt(r.revenue_eok)}억<br>`+
+        `<span class="o">영업이익</span> ${fmt(r.operating_income_eok)}억 (${r.operating_margin_pct==null?'–':r.operating_margin_pct+'%'})`;
+      tip.style.opacity=1; tip.style.left=Math.min(e.clientX+14,innerWidth-250)+"px"; tip.style.top=(e.clientY+14)+"px";
+    });
+    b.addEventListener("mouseleave",()=>tip.style.opacity=0);
+  });
+}
+
+let sortK="rank", sortAsc=true, allRows=[];
+function buildTable(rows){ allRows=rows; sortAndFill(); }
+function sortAndFill(){
+  const tb=document.querySelector("#tbl tbody");
+  const rs=allRows.slice().sort((a,b)=>{
+    let va=a[sortK], vb=b[sortK];
+    if(va==null) va=-Infinity; if(vb==null) vb=-Infinity;
+    if(typeof va==="string") return sortAsc? va.localeCompare(vb,'ko'):vb.localeCompare(va,'ko');
+    return sortAsc? va-vb : vb-va;
+  });
+  tb.innerHTML=rs.map(r=>{
+    const neg=(r.operating_margin_pct!=null&&r.operating_margin_pct<0);
+    return `<tr>
+      <td class="rank">${r.rank}</td>
+      <td>${escapeHtml(r.corp_name)}</td>
+      <td class="rank">${r.stock_code}</td>
+      <td>${fmt(r.revenue_eok)}</td>
+      <td class="${(r.operating_income_eok||0)<0?'neg':''}">${fmt(r.operating_income_eok)}</td>
+      <td class="${neg?'neg':''}">${r.operating_margin_pct==null?'–':r.operating_margin_pct.toFixed(1)+'%'}</td>
+      <td><span class="badge">${r.fs_div||'–'}</span></td>
+    </tr>`;
+  }).join("");
+}
+document.querySelectorAll("#tbl th").forEach(th=>{
+  th.addEventListener("click",()=>{
+    const k=th.dataset.k;
+    if(k===sortK){ sortAsc=!sortAsc; } else { sortK=k; sortAsc = !th.dataset.num; }
+    document.querySelectorAll("#tbl th").forEach(t=>t.classList.remove("active","asc"));
+    th.classList.add("active"); if(sortAsc) th.classList.add("asc");
+    sortAndFill();
+  });
+});
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+// 실데이터(data.json) 우선, 없으면 내장 샘플
+fetch("./data.json",{cache:"no-store"})
+  .then(r=>{ if(!r.ok) throw 0; return r.json(); })
+  .then(d=>{ if(d&&d.rows&&d.rows.length) render(d); else render(SAMPLE); })
+  .catch(()=>render(SAMPLE));
+</script>
+</body>
+</html>

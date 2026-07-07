@@ -68,6 +68,14 @@ pip install -r requirements.txt
 jupyter notebook notebooks/01_data_collection.ipynb
 ```
 
+## Related Lectures · 공간계량
+
+이 저장소의 도시 공간분석(Urban Spatial Analysis) 방법론 — 접근성 지수, 보행성 점수, 토지이용 혼합 엔트로피 등 — 은 스타게이트에듀의 **공간계량(Spatial Econometrics)** 강의와 연계되어 있습니다.
+
+- 🔗 **공간계량 강의:** [www.stargateedu.co.kr](https://www.stargateedu.co.kr)
+
+강의에서 다루는 공간계량 이론(공간가중행렬, 공간자기상관, 공간회귀모형 등)의 실습 코드와 데이터 파이프라인은 이 저장소의 `src/smartcity_gis/` 및 `notebooks/`를 참고하세요.
+
 ## License
 
 MIT License

@@ -47,10 +47,11 @@ jobs:
         shell: bash
         run: |
           base_url="${{ steps.deployment.outputs.page_url }}"
+          dashboard_file="$RUNNER_TEMP/smart-city-dashboard.html"
           curl --fail --location --silent --show-error \
             --retry 12 --retry-delay 5 --retry-all-errors \
             "$base_url" --output /dev/null
           curl --fail --location --silent --show-error \
             --retry 12 --retry-delay 5 --retry-all-errors \
-            "${base_url%/}/dashboard/" \
-            | grep -q "강남구 보행성 · 15분도시 대시보드"
+            "${base_url%/}/dashboard/" --output "$dashboard_file"
+          grep -Fq "강남구 보행성 · 15분도시 대시보드" "$dashboard_file"

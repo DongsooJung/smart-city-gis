@@ -1,0 +1,9 @@
+{
+  "sourceMode": "openstreetmap-api",
+  "source": "OpenStreetMap contributors (ODbL)",
+  "fetchedAt": "2026-08-27T21:44:07+00:00",
+  "bbox": "37.480,127.020,37.520,127.080",
+  "poiCount": 7207,
+  "nodeCount": 15319,
+  "edgeCount": 19525
+}

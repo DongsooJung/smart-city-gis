@@ -12,7 +12,7 @@ end-to-end 분석 라이브러리다.
 
 ## ✅ 구현 현황 (정직한 상태표)
 
-이 저장소는 **검증된 핵심 분석 라이브러리**이며, 외부 API 연동은 로드맵 단계다.
+이 저장소는 **검증된 핵심 분석 라이브러리**와 OpenStreetMap 실데이터 기반 강남 대시보드를 제공한다.
 아래 표로 "실제 동작"과 "예정"을 명확히 구분한다.
 
 | 기능 | 모듈 | 상태 | 테스트 |
@@ -26,20 +26,24 @@ end-to-end 분석 라이브러리다.
 | 15분 도시 지수 (Moreno 2021) | `accessibility.py` | ✅ 구현 | ✅ |
 | 시각화 (PNG/Folium/GeoJSON export) | `visualization.py` | ✅ 구현 | — |
 | **인터랙티브 대시보드** | `docs/dashboard/` | ✅ 구현 | — |
-| NSDI / V-World / KOSIS / OSM 클라이언트 | `api_clients.py` | 🚧 스텁(로드맵) | — |
+| OSM POI·보행망 수집 | `fetch_osm_data.py` | ✅ 구현 | 스키마 검증 |
+| NSDI / V-World / KOSIS 클라이언트 | `api_clients.py` | 🚧 스텁(로드맵) | — |
 
 ## 🖥 인터랙티브 대시보드
 
+`scripts/fetch_osm_data.py`가 OpenStreetMap의 현재 POI·보행망을 수집하고,
 `scripts/build_dashboard.py`가 라이브러리로 강남 핵심부 격자 점수를 계산해
 **단일 HTML 대시보드**([`docs/dashboard/index.html`](docs/dashboard/index.html))를 생성한다.
 Leaflet 코로플레스(보행성/15분도시 토글) + POI 카테고리 필터 + 분포 차트로 구성된다.
 
 ```bash
+python scripts/fetch_osm_data.py       # OSM 실제 POI·보행망 수집
 python scripts/build_dashboard.py      # 데이터 계산 + 대시보드 생성
 # docs/dashboard/index.html 을 브라우저로 열기 (또는 GitHub Pages 배포)
 ```
 
-샘플 데이터는 [`data/sample/`](data/sample/)에 GeoJSON으로 동봉되어 재현 가능하다.
+배포 대시보드는 [`data/actual/`](data/actual/)의 최신 OSM 스냅샷을 사용한다. `data/sample/`은
+라이브러리 테스트와 오프라인 재현용으로만 유지한다.
 
 ## 🧭 방법론
 
@@ -80,9 +84,11 @@ smart-city-gis/
 │   ├── accessibility.py             # 2SFCA·gravity·isochrone·15분도시
 │   ├── visualization.py             # PNG/Folium/GeoJSON export
 │   └── api_clients.py               # 공공 API 래퍼 (로드맵)
+├── scripts/fetch_osm_data.py        # OSM 실데이터 수집
 ├── scripts/build_dashboard.py       # 대시보드 빌더
 ├── notebooks/01_walkability_gangnam.ipynb
-├── data/sample/                     # 재현용 강남 샘플 GeoJSON
+├── data/actual/                     # 배포용 OSM 실제 스냅샷
+├── data/sample/                     # 테스트용 강남 샘플 GeoJSON
 ├── docs/
 │   ├── ARCHITECTURE.md              # 방법론·수식
 │   ├── data_dictionary.md           # 데이터 스키마
@@ -100,6 +106,7 @@ git clone https://github.com/DongsooJung/smart-city-gis.git
 cd smart-city-gis
 pip install -r requirements.txt
 pytest tests/ -v                     # 검증
+python scripts/fetch_osm_data.py     # OSM 실제 데이터 갱신
 python scripts/build_dashboard.py    # 대시보드 생성
 ```
 

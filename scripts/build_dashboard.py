@@ -4,14 +4,13 @@
 
 라이브러리(create_fishnet → compute_walkability → fifteen_min_city_score,
 AccessibilityAnalyzer.get_isochrone)를 실제로 호출해:
-  - data/sample/*.geojson            재현용 샘플 데이터
+  - data/actual/*                    OSM 실제 POI·보행망 스냅샷
   - docs/dashboard/index.html        데이터 임베드 단일 대시보드
 를 생성한다.
 
 v2 추가:
   - 등시선(isochrone) 레이어: 강남역 기준 5/10/15/20분 도보 도달권 (get_isochrone)
-  - 시계열 슬라이더: POI 개소 연도(2019–2026) 기반 개발 시나리오로
-    연도별 보행성/15분점수를 재계산해 연도 이동 시 지도 갱신
+  - 합성 연도 시나리오를 제거하고 최신 실제 OSM 단면만 표시
 
 Usage:
     python scripts/build_dashboard.py
@@ -36,85 +35,34 @@ from smartcity_gis import (  # noqa: E402
 from smartcity_gis.accessibility import AccessibilityAnalyzer  # noqa: E402
 
 WGS84 = 4326
-SEED = 42
 
 # 강남구 핵심부 대략 경계 (경위도)
 BBOX = (127.020, 37.480, 127.080, 37.520)
-YEARS = list(range(2019, 2027))          # 2019 ~ 2026
+YEARS = [2026]
 ISO_ORIGIN = (127.0276, 37.4979)         # 강남역
 ISO_TIMES = [5, 10, 15, 20]
-
-# 역세권 클러스터 중심 (lon, lat, 상대밀도)
-CLUSTERS = [
-    (127.0276, 37.4979, 1.4),   # 강남역
-    (127.0364, 37.5008, 1.1),   # 역삼역
-    (127.0230, 37.5045, 1.0),   # 신논현역
-    (127.0559, 37.5088, 1.2),   # 삼성역/코엑스
-    (127.0473, 37.5040, 0.9),   # 선릉역
-    (127.0350, 37.4869, 0.5),   # 도곡/매봉 (주거)
-    (127.0668, 37.4900, 0.4),   # 개포동 (주거·상업부족)
-]
-
-CATEGORY_MIX = {
-    "cafe": 0.22, "restaurant": 0.24, "grocery": 0.08, "shopping": 0.10,
-    "school": 0.07, "hospital": 0.06, "park": 0.04, "library": 0.03,
-    "subway": 0.06, "bus_stop": 0.10,
-}
-
 
 def make_boundary() -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame({"name": ["Gangnam (core)"], "geometry": [box(*BBOX)]}, crs=WGS84)
 
 
-def make_pois(n: int = 320) -> gpd.GeoDataFrame:
-    """POI 생성 + 개소 연도(opening_year) 부여(최근일수록 신설 多)."""
-    rng = np.random.default_rng(SEED)
-    cats = list(CATEGORY_MIX)
-    probs = np.array(list(CATEGORY_MIX.values())); probs = probs / probs.sum()
-    weights = np.array([c[2] for c in CLUSTERS]); weights = weights / weights.sum()
-
-    # 연도 가중치: 과거에 이미 다수 존재, 이후 완만히 증가
-    yprob = np.linspace(1.0, 2.2, len(YEARS)); yprob = yprob / yprob.sum()
-
-    lons, lats, categories, oyears = [], [], [], []
-    for _ in range(n):
-        ci = rng.choice(len(CLUSTERS), p=weights)
-        clon, clat, _ = CLUSTERS[ci]
-        lon = float(np.clip(clon + rng.normal(0, 0.006), BBOX[0], BBOX[2]))
-        lat = float(np.clip(clat + rng.normal(0, 0.004), BBOX[1], BBOX[3]))
-        lons.append(lon); lats.append(lat)
-        categories.append(str(rng.choice(cats, p=probs)))
-        oyears.append(int(rng.choice(YEARS, p=yprob)))
-
-    return gpd.GeoDataFrame(
-        {"category": categories, "opening_year": oyears},
-        geometry=[Point(x, y) for x, y in zip(lons, lats)],
-        crs=WGS84,
-    )
+def make_pois() -> gpd.GeoDataFrame:
+    path = ROOT / "data" / "actual" / "gangnam_pois.geojson"
+    pois = gpd.read_file(path).to_crs(WGS84)
+    pois["opening_year"] = YEARS[0]
+    return pois
 
 
-def make_street_graph(step_deg: float = 0.0016) -> nx.Graph:
-    """bbox를 덮는 격자형 합성 도로망 (노드 x·y=경위도, 4-이웃 연결)."""
-    xs = np.arange(BBOX[0], BBOX[2] + step_deg, step_deg)
-    ys = np.arange(BBOX[1], BBOX[3] + step_deg, step_deg)
-    G = nx.Graph()
-    idx = {}
-    for i, y in enumerate(ys):
-        for j, x in enumerate(xs):
-            nid = i * len(xs) + j
-            idx[(i, j)] = nid
-            G.add_node(nid, x=float(x), y=float(y))
-    for i in range(len(ys)):
-        for j in range(len(xs)):
-            if j + 1 < len(xs):
-                G.add_edge(idx[(i, j)], idx[(i, j + 1)])
-            if i + 1 < len(ys):
-                G.add_edge(idx[(i, j)], idx[(i + 1, j)])
-    return G
+def make_street_graph() -> nx.Graph:
+    payload = json.loads((ROOT / "data" / "actual" / "gangnam_walk_graph.json").read_text())
+    graph = nx.Graph()
+    for node, (lon, lat) in payload["nodes"].items(): graph.add_node(int(node), x=lon, y=lat)
+    for a, b, length in payload["edges"]: graph.add_edge(a, b, length=length)
+    return graph
 
 
 def build():
-    data_dir = ROOT / "data" / "sample"
+    data_dir = ROOT / "data" / "actual"
     dash_dir = ROOT / "docs" / "dashboard"
     data_dir.mkdir(parents=True, exist_ok=True)
     dash_dir.mkdir(parents=True, exist_ok=True)
@@ -123,10 +71,10 @@ def build():
     pois = make_pois()
     grid = create_fishnet(boundary, cell_size=250)
 
-    # ---- 연도별(개발 시나리오) 점수 재계산 ----
+    # ---- 최신 OSM 단면 점수 계산 ----
     walk_by_year, s15_by_year, mean_by_year = {}, {}, {}
     for y in YEARS:
-        sub = pois[pois["opening_year"] <= y]
+        sub = pois
         if len(sub) == 0:
             walk_by_year[y] = [0.0] * len(grid)
             s15_by_year[y] = [0.0] * len(grid)
@@ -151,7 +99,7 @@ def build():
     iso = analyzer.get_isochrone(ISO_ORIGIN, trip_times=ISO_TIMES, travel_speed=4.5)
     iso_geo = json.loads(iso.isochrones.to_json())
 
-    # ---- 샘플 데이터 저장 ----
+    # ---- 실제 OSM 분석 결과 저장 ----
     boundary.to_file(data_dir / "gangnam_boundary.geojson", driver="GeoJSON")
     pois.to_file(data_dir / "gangnam_pois.geojson", driver="GeoJSON")
     walk[["cell_id", "walkability_score", "score_15min", "geometry"]].to_file(
@@ -271,15 +219,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
 
     <div class="card">
-      <h3>시계열 (개발 시나리오)</h3>
+      <h3>실데이터 스냅샷</h3>
       <div class="year-head"><span class="yr" id="yrLabel">2026</span>
         <span class="ym" id="yrMean">평균 보행성 —</span></div>
-      <input type="range" id="yrSlider" min="0" max="0" step="1" value="0" oninput="onYear(this.value)"/>
-      <div class="play-row">
-        <button id="playBtn" onclick="togglePlay()">▶ 재생</button>
-        <button onclick="onYearIdx(YEARS.length-1)">최신(2026)</button>
-      </div>
-      <p class="muted" style="margin:8px 0 0">POI 개소 연도 기반 보행성 재계산. 연도별로 시설이 늘며 지도가 변합니다(시나리오).</p>
+      <p class="muted" style="margin:8px 0 0">OpenStreetMap POI·보행로 현재 단면. 합성 개소연도와 개발 시나리오는 사용하지 않습니다.</p>
     </div>
 
     <div class="card">
@@ -294,7 +237,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
 
     <div class="card">
-      <h3>보행성 점수 분포 (선택 연도)</h3>
+      <h3>보행성 점수 분포 (현재 스냅샷)</h3>
       <canvas id="hist" height="150"></canvas>
     </div>
 
@@ -384,7 +327,7 @@ Object.keys(CAT_COLORS).forEach(c=>poiLayers[c]=L.layerGroup());
 POIS.features.forEach(f=>{
   const cat=f.properties.category, c=f.geometry.coordinates;
   const m=L.circleMarker([c[1],c[0]],{radius:3.4,color:CAT_COLORS[cat]||'#888',weight:1,fillColor:CAT_COLORS[cat]||'#888',fillOpacity:.9});
-  m.bindPopup(`<b>${cat}</b> · 개소 ${f.properties.opening_year}`);
+  m.bindPopup(`<b>${cat}</b> · OSM 실제 POI${f.properties.name?`<br>${f.properties.name}`:''}`);
   if(poiLayers[cat]) poiLayers[cat].addLayer(m);
 });
 
@@ -398,24 +341,12 @@ function setMode(m){
   restyleGrid(); renderLegend(); renderHist();
 }
 
-function onYear(v){ yearIdx=+v; refreshYear(); }
-function onYearIdx(i){ yearIdx=i; document.getElementById('yrSlider').value=i; refreshYear(); }
 function refreshYear(){
   const y=YEARS[yearIdx];
   document.getElementById('yrLabel').textContent=y;
   document.getElementById('yrMean').textContent='평균 보행성 '+MEAN_BY_YEAR[String(y)];
   restyleGrid(); renderHist(); renderStats();
 }
-function togglePlay(){
-  const btn=document.getElementById('playBtn');
-  if(playTimer){ clearInterval(playTimer); playTimer=null; btn.textContent='▶ 재생'; return; }
-  btn.textContent='⏸ 정지';
-  playTimer=setInterval(()=>{
-    yearIdx=(yearIdx+1)%YEARS.length;
-    document.getElementById('yrSlider').value=yearIdx; refreshYear();
-  },900);
-}
-
 function renderLegend(){
   const el=document.getElementById('legend'); const rows=[];
   const stops = mode==='walk'? [0,20,40,60,80,100] : [0,1,2,3,4,5,6];
@@ -460,7 +391,6 @@ function renderPoiToggles(){
 function togglePoi(cb){const cat=cb.dataset.cat; if(cb.checked) poiLayers[cat].addTo(map); else map.removeLayer(poiLayers[cat]);}
 
 // init
-const sl=document.getElementById('yrSlider'); sl.max=YEARS.length-1; sl.value=yearIdx;
 renderLegend(); renderIsoLegend(); renderStats(); renderHist(); renderPoiToggles(); refreshYear();
 map.fitBounds(gridLayer.getBounds(),{padding:[20,20]});
 </script>

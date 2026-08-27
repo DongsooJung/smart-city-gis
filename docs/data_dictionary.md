@@ -3,8 +3,8 @@
 > Smart City GIS Analytics — 입력·출력 데이터 스키마 정의
 
 본 문서는 라이브러리가 소비/생산하는 `GeoDataFrame`·`Series`의 컬럼 계약(contract)을 정의한다.
-샘플 데이터는 [`data/sample/`](../data/sample/)에 GeoJSON으로 동봉되어 있으며, 노트북과
-테스트가 이를 그대로 사용한다.
+배포 대시보드는 [`data/actual/`](../data/actual/)의 OSM 스냅샷을 사용한다. 샘플 데이터는
+[`data/sample/`](../data/sample/)에 별도로 유지하며 노트북과 테스트에서만 사용한다.
 
 ---
 
@@ -78,3 +78,5 @@
 | V-World | 지오코딩·지도타일 | API 약관 |
 | KOSIS (통계청) | 인구·가구·사업체 | 공공누리 |
 | OpenStreetMap (osmnx) | 도로망·POI | ODbL |
+
+`data/actual/metadata.json`에는 수집시각, 분석 경계, POI·노드·엣지 수를 기록한다.

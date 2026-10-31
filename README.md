@@ -118,3 +118,14 @@ MIT License
 
 **Dongsoo Jung** — Ph.D. Candidate, Seoul National University
 Smart City Engineering · Civil & Environmental Engineering
+
+
+## 2026-10-31 수집·해석 범위 개정
+
+- 기존 수집기의 변환 경로를 유지하며 읽기 전용 Overpass로 조회한다. 네 응답의 실제 수신 시각·DB 기준 시각·질의·해시를 metadata.json에 기록한다. 원응답은 기본 data/raw/osm(버전관리 제외), 또는 --raw-dir에 보관한다. 수집일은 현장 관측일·월간 통계 기준월이 아니다.
+- POI는 연구 직사각형 안의 OSM 태그 노드다. 같은 좌표의 서로 다른 노드 ID를 합치지 않고, 경계 응답에 반복된 같은 ID만 중복 제거한다. way/relation으로 등록된 시설과 현장 영업 여부는 조사하지 않았다. 도로 그래프는 선택 highway의 중복 way/무방향 간선을 제거한다. 이전 좌표·분류별 중복 제거 저장본과 개수 증가율을 만들지 않는다.
+- 연구 직사각형은 강남역 주변이며 강남구 행정경계가 아니다. 경계 밖 POI를 포함하지 않아 가장자리 효과가 있다. 보행성은 카테고리별 최근접 POI의 지수 감쇠(400m)와 1600m 한계를 사용해 가중치 합으로 정규화한 자체 지표이며 공식 Walk Score 인증값이 아니다.
+- 생활 접근 0~6은 여섯 분류의 최근접 직선거리 1125m 이내 여부다(4.5km/h × 15분 가정). 실제 도보시간 검증값이 아니다. 도로망 근사권은 선택 무방향 그래프에서 5/10/15/20분 내 도달노드의 볼록껍질이며 통행권·횡단·출입구 연결은 전수 검증하지 않았다.
+- 가공 생성일과 수집일을 분리하고 개소연도를 임의로 붙이지 않는다. docs/dashboard/data/에 같은 실행의 격자 CSV/GeoJSON·POI·그래프·근사권·요약·출처 JSON을 함께 생성한다. 완전한 네 응답을 확보하지 못하면 기존 수집 입력을 교체하지 않는다.
+
+재현: `python scripts/fetch_osm_data.py --raw-dir data/raw/osm` 후 `python scripts/build_dashboard.py`, `pytest tests/`를 실행한다. 원자료 응답이 달라지는 재수집과 저장본의 오프라인 재계산을 구분한다.

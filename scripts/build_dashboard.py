@@ -19,6 +19,9 @@ from __future__ import annotations
 
 import json
 import sys
+import csv
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -43,13 +46,13 @@ ISO_ORIGIN = (127.0276, 37.4979)         # 강남역
 ISO_TIMES = [5, 10, 15, 20]
 
 def make_boundary() -> gpd.GeoDataFrame:
-    return gpd.GeoDataFrame({"name": ["Gangnam (core)"], "geometry": [box(*BBOX)]}, crs=WGS84)
+    return gpd.GeoDataFrame({"name": ["Gangnam station study rectangle"], "geometry": [box(*BBOX)]}, crs=WGS84)
 
 
 def make_pois() -> gpd.GeoDataFrame:
     path = ROOT / "data" / "actual" / "gangnam_pois.geojson"
     pois = gpd.read_file(path).to_crs(WGS84)
-    pois["opening_year"] = YEARS[0]
+    if 'opening_year' in pois.columns:pois=pois.drop(columns='opening_year')
     return pois
 
 
@@ -66,6 +69,10 @@ def build():
     dash_dir = ROOT / "docs" / "dashboard"
     data_dir.mkdir(parents=True, exist_ok=True)
     dash_dir.mkdir(parents=True, exist_ok=True)
+    source_metadata=json.loads((data_dir/'metadata.json').read_text(encoding='utf8'))
+    source_year=int(source_metadata['fetchedAt'][:4])
+    YEARS[:]=[source_year]
+    built_at=datetime.now(timezone.utc).isoformat()
 
     boundary = make_boundary()
     pois = make_pois()
@@ -124,6 +131,20 @@ def build():
         "cat_counts": pois["category"].value_counts().to_dict(),
         "hist": np.histogram(ws, bins=[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])[0].tolist(),
     }
+    if not np.isfinite(ws).all() or ((ws<0)|(ws>100)).any():raise ValueError('Invalid walkability score')
+    if not all(0<=v<=6 for v in s15_by_year[latest]):raise ValueError('Invalid six-category score')
+    if sum(stats['cat_counts'].values())!=stats['n_pois'] or sum(stats['hist'])!=stats['n_cells']:raise ValueError('Totals do not reconcile')
+    metadata={**source_metadata,'builtAt':built_at,'observationDate':None,
+              'analysis':{'gridMeters':250,'distanceCrs':'EPSG:5186','coordinateCrs':'EPSG:4326','scoreDistance':'Euclidean, not network walking distance','radiusMeters15MinuteScore':1125,'assumedSpeedKmh':4.5,'meanWeighting':'unweighted cells; edge cells intersect study rectangle','isochrone':'undirected selected-highway graph, reachable-node convex hull'},
+              'limitations':['강남역 일대 직사각형이며 강남구 행정경계가 아닙니다.','OSM 태그가 있는 노드만 사용하며 시설 전수·way/relation 시설·현장 영업 여부는 미확인입니다.','보행성·6개 생활분류 점수는 직선거리 기반입니다. 15분은 4.5km/h로 환산한 반경1125m 가정입니다.','등시선은 선택 도로망 도달노드의 볼록껍질 근사입니다. 보행 통행권·횡단·출입구 연결을 전수 검증하지 않았습니다.','분석 경계 밖 POI 누락에 따른 가장자리 효과가 있습니다.','POI 식별·범위와 도로 중복 제거가 달라 이전 저장본과 증가율·시계열 비교를 하지 않습니다.']}
+    public_data=dash_dir/'data';public_data.mkdir(exist_ok=True)
+    for name,obj in [('metadata.json',metadata),('stats.json',stats),('grid.geojson',grid_geo),('pois.geojson',pois_geo),('isochrones.geojson',iso_geo)]:
+        (public_data/name).write_text(json.dumps(obj,ensure_ascii=False,indent=2 if name in ['metadata.json','stats.json'] else None)+'\n',encoding='utf8')
+    shutil.copyfile(data_dir/'gangnam_walk_graph.json',public_data/'walk-graph.json')
+    with (public_data/'grid.csv').open('w',newline='',encoding='utf8') as file:
+        writer=csv.writer(file);writer.writerow(['cell_id','walkability_score','score_15min','source_collected_at','file_generated_at','metric_basis'])
+        for row in grid_geo['features']:
+            props=row['properties'];writer.writerow([props['cell_id'],props['walkability_score'],props['score_15min'],source_metadata['fetchedAt'],built_at,'euclidean_osm_tagged_nodes'])
 
     html = HTML_TEMPLATE
     repl = {
@@ -136,9 +157,10 @@ def build():
         "__MEAN_BY_YEAR__": json.dumps(mean_by_year, ensure_ascii=False),
         "__YEARS__": json.dumps(YEARS),
         "__ORIGIN__": json.dumps(ISO_ORIGIN),
+        "__METADATA__":json.dumps(metadata,ensure_ascii=False),
     }
     for k, v in repl.items():
-        html = html.replace(k, v)
+        html = html.replace(k, v.replace('<','\\u003c'))
     (dash_dir / "index.html").write_text(html, encoding="utf-8")
 
     print(f"grid cells : {len(walk)}")
@@ -153,7 +175,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>강남구 보행성 · 15분도시 대시보드 | Smart City GIS</title>
+<title>강남역 일대 보행성 · 생활 접근성 | Smart City GIS</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -197,13 +219,15 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   input[type=range]{width:100%;accent-color:var(--accent2)}
   .play-row{display:flex;gap:6px;margin-top:8px}
   .play-row button{flex:1;padding:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:7px;cursor:pointer;font-size:12px}
+  .source-card{overflow-wrap:anywhere;line-height:1.65}.source-card p{font-size:12px;margin:8px 0}.source-card a{color:var(--accent2);text-decoration:underline}.downloads{display:flex;flex-wrap:wrap;gap:7px 12px;font-size:12px}
+  @media(max-width:760px){#app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(360px,55vh) auto;height:auto}header{grid-column:1;flex-wrap:wrap;min-width:0;padding:12px}header h1{font-size:16px}aside{grid-row:3;border-right:0;min-width:0;overflow-y:visible}main{grid-row:2;min-width:0;min-height:360px}.stat-grid{min-width:0}}
 </style>
 </head>
 <body>
 <div id="app">
   <header>
-    <h1>🌆 강남구 보행성 · 15분도시 대시보드</h1>
-    <span class="sub">Walk Score(한국판) · 15-Minute City(Moreno 2021) · Isochrone</span>
+    <h1>강남역 일대 보행성 · 생활 접근성</h1>
+    <span class="sub">OSM 태그 노드 단면 · 직선거리 기반 점수 · 도로망 근사권</span>
     <span class="pill" id="modePill">보행성 지수</span>
     <a class="portal-link" href="https://stargateedu.co.kr/research/" target="_blank" rel="noopener">← STARGATE 연구 대시보드</a>
   </header>
@@ -213,7 +237,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <h3>지표 선택</h3>
       <div class="toggle-row">
         <button id="btnWalk" class="active" onclick="setMode('walk')">보행성 0–100</button>
-        <button id="btn15" onclick="setMode('s15')">15분도시 0–6</button>
+        <button id="btn15" onclick="setMode('s15')">생활 접근 0–6</button>
       </div>
       <div class="legend" id="legend"></div>
     </div>
@@ -222,11 +246,21 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <h3>실데이터 스냅샷</h3>
       <div class="year-head"><span class="yr" id="yrLabel">2026</span>
         <span class="ym" id="yrMean">평균 보행성 —</span></div>
-      <p class="muted" style="margin:8px 0 0">OpenStreetMap POI·보행로 현재 단면. 합성 개소연도와 개발 시나리오는 사용하지 않습니다.</p>
+      <p class="muted" style="margin:8px 0 0">OpenStreetMap 태그 노드의 수집 단면입니다. 수집일은 현장 관측일·개소연도·월간 통계 기준이 아닙니다.</p>
     </div>
 
+    <section class="card source-card" id="source-review" aria-labelledby="source-title">
+      <h3 id="source-title">자료 기준·계산 범위</h3>
+      <p id="source-dates"></p><p id="source-database"></p>
+      <p>강남역 주변 직사각형(동경127.020~127.080·북위37.480~37.520)입니다. 강남구 행정경계가 아닙니다. OSM에 태그가 있는 노드만 세며 시설 전수나 실제 영업 여부를 뜻하지 않습니다.</p>
+      <p>보행성·생활 접근 점수는 직선거리 기반입니다. 15분은 속도4.5km/h·반경1125m 가정이며 실제 도보시간을 검증한 값이 아닙니다. 경계 밖 POI 누락의 영향과 원자료 갱신 지연이 있습니다.</p>
+      <p>등시선은 선택 도로망 도달노드의 볼록껍질 근사입니다. 통행권·횡단·출입구 연결은 미확인입니다. 이전 저장본과 수집 범위·중복 제거 방식이 달라 증가율로 비교하지 않습니다.</p>
+      <div class="downloads"><a href="data/metadata.json" download>출처·수집시각 JSON</a><a href="data/grid.csv" download>격자 CSV</a><a href="data/grid.geojson" download>격자 GeoJSON</a><a href="data/pois.geojson" download>POI 노드</a><a href="data/walk-graph.json" download>도로망</a><a href="data/isochrones.geojson" download>근사권</a><a href="data/stats.json" download>요약 JSON</a></div>
+      <p><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors · ODbL</a></p>
+    </section>
+
     <div class="card">
-      <h3>등시선 (강남역 도보권)</h3>
+      <h3>선택 도로망 근사 도달권</h3>
       <button id="isoBtn" class="btn" onclick="toggleIso()">⏱ 등시선 표시 (5·10·15·20분)</button>
       <div class="legend" id="isoLegend" style="margin-top:10px;display:none"></div>
     </div>
@@ -260,6 +294,8 @@ const S15_BY_YEAR  = __S15_BY_YEAR__;
 const MEAN_BY_YEAR = __MEAN_BY_YEAR__;
 const YEARS = __YEARS__;
 const ORIGIN = __ORIGIN__;
+const META = __METADATA__;
+const safeText=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 const CAT_COLORS = {
   cafe:'#f59e0b', restaurant:'#ef4444', grocery:'#22c55e', shopping:'#a855f7',
@@ -273,8 +309,8 @@ let yearIdx = YEARS.length-1;
 let playTimer=null;
 
 const map = L.map('map',{zoomControl:true}).setView([37.500,127.050],13);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  {attribution:'© OpenStreetMap © CARTO',subdomains:'abcd',maxZoom:19}).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',maxZoom:19}).addTo(map);
 
 function rampWalk(v){
   const s=[[255,255,229],[247,252,185],[217,240,163],[173,221,142],[120,198,121],[65,171,93],[35,132,67],[0,104,55],[0,69,41]];
@@ -297,7 +333,7 @@ const gridLayer = L.geoJSON(GRID,{
   style:f=>({fillColor:colorOf(f.properties),weight:.4,color:'#0f1419',fillOpacity:.72}),
   onEachFeature:(f,l)=>{
     l.on('click',()=>{const i=f.properties.cell_id;
-      l.bindPopup(`<b>셀 #${i}</b> · ${YEARS[yearIdx]}<br>보행성: <b>${walkVal(i)}</b>/100<br>15분도시: <b>${s15Val(i)}</b>/6`).openPopup();});
+      l.bindPopup(`<b>셀 #${i}</b> · ${META.fetchedAt.slice(0,10)} 수집<br>보행성: <b>${walkVal(i)}</b>/100<br>직선거리 생활 접근: <b>${s15Val(i)}</b>/6`).openPopup();});
     l.on('mouseover',()=>l.setStyle({weight:1.6,color:'#fff'}));
     l.on('mouseout',()=>l.setStyle({weight:.4,color:'#0f1419'}));
   }
@@ -327,7 +363,7 @@ Object.keys(CAT_COLORS).forEach(c=>poiLayers[c]=L.layerGroup());
 POIS.features.forEach(f=>{
   const cat=f.properties.category, c=f.geometry.coordinates;
   const m=L.circleMarker([c[1],c[0]],{radius:3.4,color:CAT_COLORS[cat]||'#888',weight:1,fillColor:CAT_COLORS[cat]||'#888',fillOpacity:.9});
-  m.bindPopup(`<b>${cat}</b> · OSM 실제 POI${f.properties.name?`<br>${f.properties.name}`:''}`);
+  m.bindPopup(`<b>${safeText(cat)}</b> · OSM 태그 노드${f.properties.name?`<br>${safeText(f.properties.name)}`:''}`);
   if(poiLayers[cat]) poiLayers[cat].addLayer(m);
 });
 
@@ -337,13 +373,13 @@ function setMode(m){
   mode=m;
   document.getElementById('btnWalk').classList.toggle('active',m==='walk');
   document.getElementById('btn15').classList.toggle('active',m==='s15');
-  document.getElementById('modePill').textContent = m==='walk'?'보행성 지수':'15분도시 지수';
+  document.getElementById('modePill').textContent = m==='walk'?'보행성 지수':'직선거리 생활 접근';
   restyleGrid(); renderLegend(); renderHist();
 }
 
 function refreshYear(){
   const y=YEARS[yearIdx];
-  document.getElementById('yrLabel').textContent=y;
+  document.getElementById('yrLabel').textContent=META.fetchedAt.slice(0,10)+' 수집';
   document.getElementById('yrMean').textContent='평균 보행성 '+MEAN_BY_YEAR[String(y)];
   restyleGrid(); renderHist(); renderStats();
 }
@@ -363,7 +399,7 @@ function renderStats(){
   const mx=Math.max(...wy).toFixed(1);
   const s15m=(sy.reduce((a,b)=>a+b,0)/sy.length).toFixed(2);
   const ok=(sy.filter(v=>v>=4).length/sy.length*100).toFixed(1);
-  const cards=[[mean,'평균 보행성'],[mx,'최고 보행성'],[s15m,'평균 15분점수'],[ok+'%','15분 충족셀(≥4)'],[STATS.n_cells,'격자수'],[STATS.n_pois,'전체 POI']];
+  const cards=[[mean,'평균 보행성'],[mx,'최고 보행성'],[s15m,'평균 생활 접근'],[ok+'%','직선거리 충족셀(≥4)'],[STATS.n_cells,'격자수'],[STATS.n_pois,'표본 POI 노드']];
   document.getElementById('stats').innerHTML=cards.map(c=>`<div class="stat"><div class="v">${c[0]}</div><div class="l">${c[1]}</div></div>`).join('');
 }
 
@@ -391,6 +427,8 @@ function renderPoiToggles(){
 function togglePoi(cb){const cat=cb.dataset.cat; if(cb.checked) poiLayers[cat].addTo(map); else map.removeLayer(poiLayers[cat]);}
 
 // init
+document.getElementById('source-dates').textContent='수집 완료(UTC) '+META.fetchedAt+' · 계산 파일 생성(UTC) '+META.builtAt+' · 현장 관측일 미확인';
+document.getElementById('source-database').textContent='원자료 DB 기준(UTC): '+([...new Set((META.sourceResponses||[]).map(r=>r.osmBaseTimestamp))].join(' / ')||'이전 수집본 미기록')+' · 응답들의 수집 단면이며 동시 관측 전수조사가 아닙니다.';
 renderLegend(); renderIsoLegend(); renderStats(); renderHist(); renderPoiToggles(); refreshYear();
 map.fitBounds(gridLayer.getBounds(),{padding:[20,20]});
 </script>

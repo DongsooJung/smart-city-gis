@@ -34,6 +34,7 @@ from smartcity_gis.accessibility import (  # noqa: F401
     fifteen_min_city_score,
 )
 from smartcity_gis.api_clients import NSDIClient, VWorldClient  # noqa: F401
+from smartcity_gis.opendart import OpenDartClient, collect_financials  # noqa: F401
 
 __all__ = [
     "create_fishnet",
@@ -42,4 +43,6 @@ __all__ = [
     "fifteen_min_city_score",
     "NSDIClient",
     "VWorldClient",
+    "OpenDartClient",
+    "collect_financials",
 ]

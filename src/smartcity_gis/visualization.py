@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Optional
 
 import geopandas as gpd
 
@@ -23,7 +22,7 @@ def choropleth_png(
     column: str,
     out_path: str,
     cmap: str = "YlGn",
-    title: Optional[str] = None,
+    title: str | None = None,
     figsize: tuple[int, int] = (12, 12),
 ) -> str:
     """GeoDataFrame 컬럼을 코로플레스 PNG로 저장."""
@@ -43,7 +42,7 @@ def choropleth_png(
 def folium_choropleth(
     gdf: gpd.GeoDataFrame,
     column: str,
-    center: Optional[tuple[float, float]] = None,
+    center: tuple[float, float] | None = None,
     zoom: int = 13,
     fill_color: str = "YlGn",
 ):
@@ -72,7 +71,7 @@ def folium_choropleth(
 def export_dashboard_geojson(
     gdf: gpd.GeoDataFrame,
     out_path: str,
-    keep_cols: Optional[list[str]] = None,
+    keep_cols: list[str] | None = None,
 ) -> str:
     """
     대시보드(브라우저)용 GeoJSON을 EPSG:4326으로 내보낸다.

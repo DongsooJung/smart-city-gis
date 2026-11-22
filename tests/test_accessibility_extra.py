@@ -5,21 +5,19 @@
 import sys
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Point, box
-import pytest
 import networkx as nx
+import pytest
+from shapely.geometry import Point, box
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from smartcity_gis.geometry import create_fishnet
 from smartcity_gis.accessibility import (
+    ESSENTIAL_CATEGORIES,
     AccessibilityAnalyzer,
     fifteen_min_city_score,
-    ESSENTIAL_CATEGORIES,
 )
+from smartcity_gis.geometry import create_fishnet
 
 
 # ----------------------------------------------------------------------

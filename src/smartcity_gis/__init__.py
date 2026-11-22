@@ -27,19 +27,19 @@ __version__ = "0.2.0"
 __author__ = "Dongsoo Jung"
 __email__ = "jds068888@gmail.com"
 
-from smartcity_gis.geometry import create_fishnet  # noqa: F401
-from smartcity_gis.walkability import compute_walkability  # noqa: F401
-from smartcity_gis.accessibility import (  # noqa: F401
+from smartcity_gis.accessibility import (
     AccessibilityAnalyzer,
     fifteen_min_city_score,
 )
-from smartcity_gis.api_clients import NSDIClient, VWorldClient  # noqa: F401
+from smartcity_gis.api_clients import NSDIClient, VWorldClient
+from smartcity_gis.geometry import create_fishnet
+from smartcity_gis.walkability import compute_walkability
 
 __all__ = [
-    "create_fishnet",
-    "compute_walkability",
     "AccessibilityAnalyzer",
-    "fifteen_min_city_score",
     "NSDIClient",
     "VWorldClient",
+    "compute_walkability",
+    "create_fishnet",
+    "fifteen_min_city_score",
 ]

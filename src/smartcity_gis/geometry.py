@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 
-import numpy as np
 import geopandas as gpd
+import numpy as np
 from shapely.geometry import box
 
 logger = logging.getLogger(__name__)

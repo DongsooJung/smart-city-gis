@@ -71,7 +71,8 @@ stats = [
 dev = [
     "pytest>=7.4.0",
     "black>=23.12.0",
-    "ruff>=0.1.9",
+    # Pinned to a minor series so a new ruff release cannot silently change CI lint rules.
+    "ruff>=0.17.6,<0.18",
     "mypy>=1.7.0",
     "jupyter>=1.0.0",
     "ipykernel>=6.27.0",

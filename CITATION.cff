@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "smart-city-gis: Urban accessibility analytics for Korean smart city planning"
+abstract: >-
+  A Python library for urban analytics on Korean city data: walkability scores,
+  2SFCA and gravity accessibility models, network-based isochrones, and
+  15-minute city indices, with reproducible pipelines from OpenStreetMap and
+  Korean public data (NSDI, V-World, KOSIS).
+type: software
+version: 0.2.0
+date-released: "2026-11-22"
+license: MIT
+repository-code: "https://github.com/DongsooJung/smart-city-gis"
+url: "https://stargateedu.co.kr/smart-city-gis/"
+keywords:
+  - urban analytics
+  - accessibility
+  - walkability
+  - 2SFCA
+  - isochrone
+  - 15-minute city
+  - GIS
+  - openstreetmap
+  - reproducibility
+authors:
+  - family-names: Jung
+    given-names: Dongsoo
+    affiliation: "Seoul National University, Department of Civil and Environmental Engineering"

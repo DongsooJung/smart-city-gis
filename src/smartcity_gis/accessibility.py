@@ -3,6 +3,12 @@
 
 isochrone (등시선) + 2SFCA (2-Step Floating Catchment Area) +
 gravity 모형 + 15분 도시 지수 통합 인터페이스.
+
+거리 기준은 두 가지를 지원한다.
+- 직선거리(Euclidean, EPSG:5186 기준): 기본값. 격자·POI 계산이 빠르지만
+  보행불가 지형·장벽을 무시하는 근사.
+- 네트워크 거리(도로망 최단경로): `distance_method="network"` 또는 네트워크가
+  주어지면 자동 사용. 실제 도로망 제약을 반영한다.
 """
 from __future__ import annotations
 
@@ -14,6 +20,7 @@ from typing import Literal
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+from scipy.spatial import cKDTree
 from scipy.spatial.distance import cdist
 
 logger = logging.getLogger(__name__)
@@ -21,6 +28,9 @@ logger = logging.getLogger(__name__)
 # 한국 표준 투영좌표계 (중부원점 TM) — 거리(m) 계산용
 METRIC_CRS = 5186
 WGS84 = 4326
+
+# 거리 계산 방식
+DistanceMethod = Literal["auto", "straight", "network"]
 
 # 15분 도시 6대 생활 카테고리 (Moreno 2021) → POI category 매핑
 ESSENTIAL_CATEGORIES = {
@@ -44,16 +54,163 @@ def _metric_coords(gdf: gpd.GeoDataFrame) -> np.ndarray:
 
 
 def _decay(dist: np.ndarray, d0: float, kind: str) -> np.ndarray:
-    """거리 감쇠 함수 (catchment 내 가중치)."""
+    """거리 감쇠 함수 (catchment 내 가중치).
+
+    catchment 반경(d0) 밖은 종류와 무관하게 가중치 0이다. 네트워크 거리에서
+    도달 불가·cutoff 초과는 `np.inf`로 표현되므로, 감쇠 계산은 반경 내부만
+    대상으로 수행해 무한대 연산을 피한다.
+    """
     dist = np.asarray(dist, dtype=float)
+    inside = dist <= d0
+    out = np.zeros(dist.shape, dtype=float)
     if kind == "linear":
-        return np.clip(1.0 - dist / d0, 0.0, 1.0)
-    if kind == "gaussian":
+        out[inside] = np.clip(1.0 - dist[inside] / d0, 0.0, 1.0)
+    elif kind == "gaussian":
         sigma = d0 / 2.0
-        w = np.exp(-(dist ** 2) / (2.0 * sigma ** 2))
-        return np.where(dist <= d0, w, 0.0)
-    # 기본: 임계 catchment (이내=1, 초과=0)
-    return (dist <= d0).astype(float)
+        out[inside] = np.exp(-(dist[inside] ** 2) / (2.0 * sigma ** 2))
+    else:
+        # 기본: 임계 catchment (이내=1, 초과=0)
+        out[inside] = 1.0
+    return out
+
+
+def _graph_node_coords(network) -> tuple[list, np.ndarray]:
+    """네트워크 노드 id 리스트와 (N,2) 미터좌표 배열."""
+    nodes, lons, lats = [], [], []
+    for n, data in network.nodes(data=True):
+        if "x" in data and "y" in data:
+            nodes.append(n)
+            lons.append(data["x"])
+            lats.append(data["y"])
+    if not nodes:
+        raise ValueError("네트워크 노드에 x·y(경위도) 속성이 없습니다.")
+    pts = gpd.GeoSeries.from_xy(lons, lats, crs=WGS84).to_crs(METRIC_CRS)
+    coords = np.column_stack([pts.x.values, pts.y.values])
+    return nodes, coords
+
+
+class NetworkDistanceCalculator:
+    """도로망 그래프 기반 점 쌍 최단거리 계산기.
+
+    격자 셀·POI처럼 도로망에 직접 속하지 않는 점을 가장 가까운 그래프 노드에
+    스내핑(snap)한 뒤, 간선 `length`(미터)를 가중치로 다익스트라를 수행한다.
+    catchment 반경 밖은 계산하지 않아(cutoff) 큰 격자에서도 비용이 선형으로
+    증가하도록 한다.
+
+    Example:
+        >>> calc = NetworkDistanceCalculator(osmnx_graph)
+        >>> matrix = calc.distance_matrix(origins_xy, destinations_xy, cutoff_m=1125)
+    """
+
+    def __init__(self, network):
+        self.network = network
+        self.nodes, self.coords = _graph_node_coords(network)
+        self._node_of = {n: i for i, n in enumerate(self.nodes)}
+        self._coord_of = {
+            n: (self.coords[i, 0], self.coords[i, 1]) for i, n in enumerate(self.nodes)
+        }
+        self._tree = cKDTree(self.coords)
+
+    # ------------------------------------------------------------------
+    # 가중치 · 스내핑
+    # ------------------------------------------------------------------
+    def edge_weight(self, u, v, data) -> float:
+        """간선 가중치(미터). osmnx `length` 우선, 없으면 노드 직선거리."""
+        length = data.get("length")
+        if length is None:
+            (x1, y1), (x2, y2) = self._coord_of[u], self._coord_of[v]
+            length = float(np.hypot(x2 - x1, y2 - y1))
+        return float(length)
+
+    def snap(self, points_xy: np.ndarray) -> np.ndarray:
+        """각 점을 최근접 네트워크 노드로 매핑한 노드 라벨 배열."""
+        if len(points_xy) == 0:
+            return np.array([], dtype=object)
+        _, idx = self._tree.query(np.asarray(points_xy, dtype=float), k=1)
+        return np.array([self.nodes[int(i)] for i in np.atleast_1d(idx)], dtype=object)
+
+    # ------------------------------------------------------------------
+    # 거리 행렬
+    # ------------------------------------------------------------------
+    def distance_matrix(
+        self,
+        origins_xy: np.ndarray,
+        destinations_xy: np.ndarray,
+        cutoff_m: float | None = None,
+    ) -> np.ndarray:
+        """수요→공급 네트워크 최단거리 행렬(미터).
+
+        Args:
+            origins_xy: (N,2) 미터좌표
+            destinations_xy: (M,2) 미터좌표
+            cutoff_m: 계산 상한(m). 초과·도달 불가는 `np.inf`.
+
+        Returns:
+            (N, M) float ndarray
+        """
+        import networkx as nx
+
+        n_o, n_d = len(origins_xy), len(destinations_xy)
+        out = np.full((n_o, n_d), np.inf, dtype=float)
+        if n_o == 0 or n_d == 0:
+            return out
+
+        origin_nodes = self.snap(origins_xy)
+        dest_nodes = self.snap(destinations_xy)
+
+        # 여러 공급지가 같은 노드로 스내핑될 수 있어 노드별로 묶는다.
+        dest_cols: dict = {}
+        for col, node in enumerate(dest_nodes):
+            dest_cols.setdefault(node, []).append(col)
+
+        cutoff = None if cutoff_m is None else float(cutoff_m)
+        for row, origin in enumerate(origin_nodes):
+            lengths = nx.single_source_dijkstra_path_length(
+                self.network, origin, cutoff=cutoff, weight=self.edge_weight
+            )
+            if not lengths:
+                continue
+            for node, cols in dest_cols.items():
+                dist = lengths.get(node)
+                if dist is not None:
+                    out[row, cols] = dist
+        return out
+
+    def reachable_matrix(
+        self,
+        origins_xy: np.ndarray,
+        destinations_xy: np.ndarray,
+        cutoff_m: float,
+    ) -> np.ndarray:
+        """각 출발점에서 `cutoff_m` 이내로 도달 가능한 도착점 boolean 행렬.
+
+        15분 도시처럼 "도달 여부"만 필요한 경우에 거리 행렬보다 가볍다.
+
+        Returns:
+            (N, M) bool ndarray
+        """
+        import networkx as nx
+
+        n_o, n_d = len(origins_xy), len(destinations_xy)
+        out = np.zeros((n_o, n_d), dtype=bool)
+        if n_o == 0 or n_d == 0:
+            return out
+
+        origin_nodes = self.snap(origins_xy)
+        dest_nodes = self.snap(destinations_xy)
+        dest_set = set(dest_nodes.tolist())
+
+        for row, origin in enumerate(origin_nodes):
+            lengths = nx.single_source_dijkstra_path_length(
+                self.network, origin, cutoff=float(cutoff_m), weight=self.edge_weight
+            )
+            if not lengths:
+                continue
+            reach = dest_set.intersection(lengths.keys())
+            if not reach:
+                continue
+            out[row] = np.isin(dest_nodes, list(reach))
+        return out
 
 
 def _lonlat_to_metric(lon: float, lat: float) -> tuple[float, float]:
@@ -87,23 +244,63 @@ class AccessibilityAnalyzer:
             network: osmnx graph 또는 networkx graph (노드에 x·y 속성).
         """
         self.network = network
+        self._calculator: NetworkDistanceCalculator | None = None
+
+    # ------------------------------------------------------------------
+    # 거리 계산 방식
+    # ------------------------------------------------------------------
+    def _resolve_distance_method(self, distance_method: str) -> str:
+        """`auto`를 실제 방식('straight'/'network')으로 확정한다."""
+        if distance_method not in ("auto", "straight", "network"):
+            raise ValueError(
+                f"distance_method는 'auto'|'straight'|'network' 중 하나여야 합니다: {distance_method!r}"
+            )
+        if distance_method == "auto":
+            return "network" if self.network is not None else "straight"
+        if distance_method == "network" and self.network is None:
+            raise ValueError("distance_method='network'에는 network 그래프가 필요합니다.")
+        return distance_method
+
+    def distance_calculator(self) -> NetworkDistanceCalculator:
+        """(캐시된) 네트워크 거리 계산기."""
+        if self.network is None:
+            raise ValueError("network가 필요합니다 (networkx/osmnx 그래프).")
+        if self._calculator is None:
+            self._calculator = NetworkDistanceCalculator(self.network)
+        return self._calculator
+
+    def network_distance_matrix(
+        self,
+        origins: gpd.GeoDataFrame,
+        destinations: gpd.GeoDataFrame,
+        cutoff_m: float | None = None,
+    ) -> np.ndarray:
+        """
+        두 점 집합 사이의 네트워크 최단거리 행렬(미터).
+
+        격자 셀·POI를 가장 가까운 도로망 노드에 스내핑한 뒤, 간선 `length`를
+        가중치로 최단경로를 구한다. 도달 불가 또는 `cutoff_m` 초과는 `np.inf`.
+
+        Args:
+            origins: 출발점 GeoDataFrame
+            destinations: 도착점 GeoDataFrame
+            cutoff_m: 계산 상한(m). None이면 전체 그래프에서 계산.
+
+        Returns:
+            (len(origins), len(destinations)) float ndarray
+        """
+        return self.distance_calculator().distance_matrix(
+            _metric_coords(origins), _metric_coords(destinations), cutoff_m=cutoff_m
+        )
 
     # ------------------------------------------------------------------
     # Isochrone (등시선)
     # ------------------------------------------------------------------
     def _node_metric_coords(self) -> tuple[list, np.ndarray]:
         """네트워크 노드 id 리스트와 (N,2) 미터좌표 배열."""
-        nodes, lons, lats = [], [], []
-        for n, data in self.network.nodes(data=True):
-            if "x" in data and "y" in data:
-                nodes.append(n)
-                lons.append(data["x"])
-                lats.append(data["y"])
-        if not nodes:
-            raise ValueError("네트워크 노드에 x·y(경위도) 속성이 없습니다.")
-        pts = gpd.GeoSeries.from_xy(lons, lats, crs=WGS84).to_crs(METRIC_CRS)
-        coords = np.column_stack([pts.x.values, pts.y.values])
-        return nodes, coords
+        if self.network is None:
+            raise ValueError("network가 필요합니다 (networkx/osmnx 그래프).")
+        return _graph_node_coords(self.network)
 
     def _ensure_travel_time(self, speed_m_per_min: float, coord_of: dict) -> None:
         """엣지에 travel_time(분) 속성을 채운다 (없으면 length/속도)."""
@@ -193,12 +390,19 @@ class AccessibilityAnalyzer:
         travel_speed: float = 4.5,          # km/h, 도보 평균
         demand_col: str = "population",
         supply_col: str = "capacity",
+        distance_method: DistanceMethod = "auto",
     ) -> pd.Series:
         """
         2-Step Floating Catchment Area (Luo & Wang 2003).
 
         의료시설 접근성 분석에 표준. 수요-공급 비율을 가중평균.
-        거리는 직선거리(m)를 도보속도로 분 단위로 환산해 catchment를 적용한다.
+        거리 기준:
+        - `"straight"`: 직선거리(m)를 도보속도로 분 단위로 환산해 catchment 적용.
+          빠르지만 강·철도·통제단지 같은 보행 제약을 무시하는 근사.
+        - `"network"`: 도로망 최단거리(m) 사용. catchment 반경은 동일하게
+          `travel_speed × catchment_minutes`로 두고, 반경 밖·도달 불가는
+          가중치 0으로 처리한다.
+        - `"auto"`: network가 있으면 네트워크 거리, 없으면 직선거리.
 
         Returns:
             demand_points 인덱스에 정렬된 접근성 점수 Series
@@ -215,6 +419,9 @@ class AccessibilityAnalyzer:
 
         d0 = (travel_speed * 1000.0 / 60.0) * catchment_minutes
         dist = cdist(D, S)
+        method = self._resolve_distance_method(distance_method)
+        if method == "network":
+            dist = self.network_distance_matrix(demand_points, supply_points, cutoff_m=d0)
         w = _decay(dist, d0, decay)
 
         weighted_demand = (w * pop[:, None]).sum(axis=0)
@@ -261,6 +468,7 @@ def fifteen_min_city_score(
     minutes: int = 15,
     travel_speed: float = 4.5,
     essential_categories: dict | None = None,
+    distance_method: DistanceMethod = "auto",
 ) -> pd.Series:
     """
     15분 도시 지수 (Moreno 2021).
@@ -268,8 +476,12 @@ def fifteen_min_city_score(
     각 셀 중심에서 6대 생활 카테고리(상업·먹거리·교육·의료·여가·이동)에
     `minutes`분 이내 도보 도달 가능 여부를 세어 0~6점으로 환산한다.
 
-    거리는 직선거리(m)를 도보속도로 환산해 임계 적용한다(라이브러리 일관성).
-    `network`가 주어지면 향후 네트워크 거리로 정밀화할 확장 지점이다.
+    거리 기준:
+    - `distance_method="straight"`: 직선거리(m)를 도보속도로 환산해 임계 적용.
+      빠르지만 보행 제약을 무시하는 근사.
+    - `distance_method="network"`: 도로망 최단거리(m)로 판정. `network`가
+      주어지면 `"auto"`가 이 방식을 선택한다.
+    - `distance_method="auto"`: network가 있으면 네트워크 거리, 없으면 직선거리.
 
     Args:
         grid: 분석 격자
@@ -288,8 +500,15 @@ def fifteen_min_city_score(
     groups = essential_categories or ESSENTIAL_CATEGORIES
     n_groups = len(groups)
 
-    if network is not None:
-        logger.info("network 인자는 현재 직선거리로 대체 처리됩니다.")
+    if distance_method not in ("auto", "straight", "network"):
+        raise ValueError(
+            f"distance_method는 'auto'|'straight'|'network' 중 하나여야 합니다: {distance_method!r}"
+        )
+    if distance_method == "network" and network is None:
+        raise ValueError("distance_method='network'에는 network 그래프가 필요합니다.")
+    method = "network" if (distance_method == "auto" and network is not None) else distance_method
+    if method == "straight":
+        method = "straight"
 
     cell_xy = _metric_coords(grid)
     threshold = (travel_speed * 1000.0 / 60.0) * minutes  # m
@@ -300,14 +519,23 @@ def fifteen_min_city_score(
     amen_xy = _metric_coords(amenities)
     cats = amenities["category"].to_numpy()
 
+    reach = None
+    if method == "network":
+        reach = NetworkDistanceCalculator(network).reachable_matrix(
+            cell_xy, amen_xy, threshold
+        )
+
     reachable = np.zeros(len(grid), dtype=float)
     for cat_list in groups.values():
         mask = np.isin(cats, cat_list)
         if not mask.any():
             continue
         sub = amen_xy[mask]
-        dmin = cdist(cell_xy, sub).min(axis=1)
-        reachable += (dmin <= threshold).astype(float)
+        if reach is not None:
+            reachable += reach[:, mask].any(axis=1).astype(float)
+        else:
+            dmin = cdist(cell_xy, sub).min(axis=1)
+            reachable += (dmin <= threshold).astype(float)
 
     score = reachable / n_groups * 6.0
     return pd.Series(score, index=grid.index, name="score_15min")

@@ -23,12 +23,13 @@ Smart City GIS Analytics
     >>> score = fifteen_min_city_score(grid, amenities)
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __author__ = "Dongsoo Jung"
 __email__ = "jds068888@gmail.com"
 
 from smartcity_gis.accessibility import (
     AccessibilityAnalyzer,
+    NetworkDistanceCalculator,
     fifteen_min_city_score,
 )
 from smartcity_gis.api_clients import NSDIClient, VWorldClient
@@ -38,6 +39,7 @@ from smartcity_gis.walkability import compute_walkability
 __all__ = [
     "AccessibilityAnalyzer",
     "NSDIClient",
+    "NetworkDistanceCalculator",
     "VWorldClient",
     "compute_walkability",
     "create_fishnet",

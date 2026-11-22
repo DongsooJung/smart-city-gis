@@ -51,6 +51,27 @@ $$\text{Score}_i = \frac{\#\{c \in C : \exists a \in c, \text{walk}(i, a) \leq 1
 
 (Moreno 2021, "The 15-Minute City")
 
+### 4. 거리 기준 — 직선거리 vs 네트워크 거리
+
+위 수식의 $d_{ij}$는 두 가지 방식으로 계산된다.
+
+**직선거리(straight, 기본)** — 두 점을 EPSG:5186로 투영해 유클리드 거리.
+빠르지만 강·철도·고속도로 장벽과 통제된 단지를 무시하는 근사.
+
+**네트워크 거리(network)** — 점을 최근접 도로망 노드에 스내핑하고, 간선 `length`(m)를
+가중치로 다익스트라 최단경로를 구한다.
+
+$$d_{ij}^{\text{net}} = \min_{P:\,o_i \to s_j} \sum_{e \in P} \ell_e$$
+
+- catchment 반경 $d_0 = v \times t$ (기본 보행속도 4.5km/h) 밖의 쌍은 가중치 0
+- 도달 불가(연결 요소 분리) 쌍은 $\infty$로 처리해 가중치 0
+- 경로 탐색이 $d_0$에서 중단되므로 계산량은 격자 크기에 선형으로 증가
+
+구현: `AccessibilityAnalyzer.two_sfca(..., distance_method=...)`,
+`AccessibilityAnalyzer.network_distance_matrix(...)`,
+`fifteen_min_city_score(..., network=...)`.
+방법론·검증 절차는 [`network_distance.md`](network_distance.md).
+
 ---
 
 ## 🌐 API 의존성

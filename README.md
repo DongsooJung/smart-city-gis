@@ -3,12 +3,22 @@
 > GIS-based urban analytics platform for smart city planning and policy simulation
 
 [![CI](https://github.com/DongsooJung/smart-city-gis/actions/workflows/ci.yml/badge.svg)](https://github.com/DongsooJung/smart-city-gis/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/badge/PyPI-smartcity--gis-3776AB?style=flat-square&logo=pypi&logoColor=white)](https://pypi.org/project/smartcity-gis/)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
 한국 도시계획 의사결정은 여러 기관에 흩어진 데이터에 의존한다. 본 프로젝트는 인구·교통·토지이용·부동산
 데이터를 결합해 **보행성·접근성·15분 도시** 지표를 계산하고 인터랙티브 지도로 시각화하는
 end-to-end 분석 라이브러리다.
+
+## 📦 Installation
+
+```bash
+pip install smartcity-gis              # 코어 (보행성·접근성·15분도시)
+pip install "smartcity-gis[network]"   # + OSMnx·Pandana 네트워크 분석
+pip install "smartcity-gis[viz]"       # + Folium·matplotlib 시각화
+pip install "smartcity-gis[stats]"     # + PySAL 공간통계
+```
 
 ## ✅ 구현 현황 (정직한 상태표)
 
@@ -78,6 +88,8 @@ python scripts/build_dashboard.py      # 데이터 계산 + 대시보드 생성
 ```
 smart-city-gis/
 ├── .github/workflows/ci.yml         # pytest 자동화 (3.11/3.12)
+├── pyproject.toml                   # 패키지 메타데이터 (pip install 지원)
+├── CHANGELOG.md                     # 버전별 변경 기록
 ├── src/smartcity_gis/
 │   ├── geometry.py                  # create_fishnet 격자 생성
 │   ├── walkability.py               # 보행성·다양성·밀도
@@ -102,6 +114,9 @@ smart-city-gis/
 ## 🚀 Quick Start
 
 ```bash
+pip install "smartcity-gis[dev]"       # PyPI 설치 (개발용 extras 포함)
+
+# 또는 소스에서 직접:
 git clone https://github.com/DongsooJung/smart-city-gis.git
 cd smart-city-gis
 pip install -r requirements.txt

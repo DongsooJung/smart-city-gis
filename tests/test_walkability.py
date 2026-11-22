@@ -6,24 +6,23 @@ osmnx가 필요한 isochrone·15분도시 함수는 제외하고, 직선거리·
 import sys
 from pathlib import Path
 
+import geopandas as gpd
+import networkx as nx
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-from shapely.geometry import Point, box
 import pytest
-import networkx as nx
+from shapely.geometry import Point, box
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from smartcity_gis.accessibility import AccessibilityAnalyzer
 from smartcity_gis.walkability import (
+    _decay_weight,
     compute_walkability,
     diversity_index,
     intersection_density,
     population_density,
-    _decay_weight,
-    POI_WEIGHTS,
 )
-from smartcity_gis.accessibility import AccessibilityAnalyzer
 
 
 # ----------------------------------------------------------------------

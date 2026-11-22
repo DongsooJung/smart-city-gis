@@ -1,7 +1,10 @@
+import importlib.util
+import json
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
-import importlib.util,xml.etree.ElementTree as ET,json
+
 import pytest
 
 spec=importlib.util.spec_from_file_location('collector',Path(__file__).resolve().parents[1]/'scripts/fetch_osm_data.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
@@ -25,6 +28,11 @@ def test_border_ways_and_reverse_edges_are_deduplicated_without_changing_lengths
 def test_failed_partial_collection_leaves_previous_published_inputs_untouched():
     with TemporaryDirectory() as tmp:
         folder=Path(tmp);old=folder/'metadata.json';old.write_text(json.dumps({'fetchedAt':'2026-08-27'}));before=old.read_bytes()
-        with patch.object(m,'OUT',folder),patch.object(m,'request_map',side_effect=[(xml(N1),{}),RuntimeError('source failed')]),patch('sys.argv',['fetch_osm_data.py','--raw-dir',str(folder/'raw')]):
-            with pytest.raises(RuntimeError,match='source failed'):m.main()
+        with (
+            patch.object(m,'OUT',folder),
+            patch.object(m,'request_map',side_effect=[(xml(N1),{}),RuntimeError('source failed')]),
+            patch('sys.argv',['fetch_osm_data.py','--raw-dir',str(folder/'raw')]),
+            pytest.raises(RuntimeError,match='source failed'),
+        ):
+            m.main()
         assert old.read_bytes()==before;assert not (folder/'gangnam_pois.geojson').exists()

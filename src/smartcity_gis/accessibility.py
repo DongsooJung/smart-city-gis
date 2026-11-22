@@ -7,12 +7,13 @@ gravity 모형 + 15분 도시 지수 통합 인터페이스.
 from __future__ import annotations
 
 import logging
-from typing import Literal, Optional
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
-import geopandas as gpd
 from scipy.spatial.distance import cdist
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ class AccessibilityAnalyzer:
     def get_isochrone(
         self,
         origin: tuple[float, float],
-        trip_times: list[int] = [5, 10, 15],
+        trip_times: Sequence[int] = (5, 10, 15),
         travel_speed: float = 4.5,  # km/h, 보행 평균
         travel_mode: str = "walk",
     ) -> IsochroneResult:
@@ -259,7 +260,7 @@ def fifteen_min_city_score(
     network=None,
     minutes: int = 15,
     travel_speed: float = 4.5,
-    essential_categories: Optional[dict] = None,
+    essential_categories: dict | None = None,
 ) -> pd.Series:
     """
     15분 도시 지수 (Moreno 2021).

@@ -129,6 +129,33 @@ python scripts/build_dashboard.py    # 대시보드 생성
 
 MIT License
 
+## 📖 Citation
+
+If you use this library in research or policy analysis, please cite it:
+
+```bibtex
+@software{smartcitygis2026,
+  author    = {Jung, Dongsoo},
+  title     = {smart-city-gis: Urban accessibility analytics for Korean smart city planning},
+  version   = {0.2.0},
+  year      = {2026},
+  publisher = {GitHub},
+  doi       = {10.5281/zenodo.XXXXXXX},
+  url       = {https://github.com/DongsooJung/smart-city-gis}
+}
+```
+
+Citation metadata is also machine-readable in [`CITATION.cff`](CITATION.cff).
+Methodology, data schema, and coordinate-system references live in
+[`docs/`](docs/): [ARCHITECTURE.md](docs/ARCHITECTURE.md),
+[data_dictionary.md](docs/data_dictionary.md),
+[crs_reference.md](docs/crs_reference.md).
+
+## 🤝 Contributing
+
+Issues and pull requests are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
+
 ## 👤 Author
 
 **Dongsoo Jung** — Ph.D. Candidate, Seoul National University

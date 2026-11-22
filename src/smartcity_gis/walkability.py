@@ -13,11 +13,10 @@ Walk Score (USA) 한국 적응판:
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
-import geopandas as gpd
 from scipy.spatial import cKDTree
 
 logger = logging.getLogger(__name__)

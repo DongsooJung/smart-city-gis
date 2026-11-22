@@ -5,13 +5,11 @@ NSDI / V-World / KOSIS / 도로명주소 API 통합 래퍼.
 """
 from __future__ import annotations
 
-import os
 import logging
-from typing import Optional
+import os
 
-import pandas as pd
 import geopandas as gpd
-import requests
+import pandas as pd
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -28,7 +26,7 @@ class NSDIClient:
         - 토지이용 현황
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.getenv("NSDI_API_KEY")
         if not self.api_key:
             raise ValueError("NSDI_API_KEY 미설정")
@@ -37,7 +35,7 @@ class NSDIClient:
     def fetch_admin_boundary(
         self,
         level: str = "sgg",
-        sido_code: Optional[str] = None,
+        sido_code: str | None = None,
     ) -> gpd.GeoDataFrame:
         """
         행정경계 GeoDataFrame 반환.
@@ -61,7 +59,7 @@ class NSDIClient:
 class VWorldClient:
     """V-World 2D/3D 지도 데이터 API."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.getenv("VWORLD_API_KEY")
 
     def search_address(self, query: str) -> dict:
@@ -78,7 +76,7 @@ class KosisClient:
         - 사업체
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.getenv("KOSIS_API_KEY")
 
     def fetch_population_by_sgg(self, year: int) -> pd.DataFrame:
@@ -103,7 +101,7 @@ class OSMClient:
     @staticmethod
     def fetch_amenities(
         place: str,
-        tags: dict = None,
+        tags: dict | None = None,
     ) -> gpd.GeoDataFrame:
         """편의시설 POI 추출 (학교/병원/카페 등)."""
         raise NotImplementedError(

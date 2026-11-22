@@ -28,14 +28,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gdal-bin libgdal-dev
 
-      - name: Install test dependencies
+      - name: Install package with dev extras
         run: |
           python -m pip install --upgrade pip
-          # 臾닿굅???좏깮 ?섏〈??osmnx/keplergl ?? ?쒖쇅???뚯뒪??理쒖냼 ?명듃
-          pip install geopandas shapely pyproj scipy networkx pandas numpy pytest ruff requests python-dotenv
+          # Install the package exactly as PyPI users get it (editable + dev extras).
+          # osmnx / keplergl are heavy optional extras and are intentionally excluded.
+          pip install -e ".[dev]"
 
       - name: Lint (ruff)
-        run: ruff check src tests || true
+        run: ruff check src tests
 
       - name: Run tests
         run: pytest tests/ -v

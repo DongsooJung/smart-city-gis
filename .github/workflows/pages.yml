@@ -54,4 +54,8 @@ jobs:
           curl --fail --location --silent --show-error \
             --retry 12 --retry-delay 5 --retry-all-errors \
             "${base_url%/}/dashboard/" --output "$dashboard_file"
-          grep -Fq "강남구 보행성 · 15분도시 대시보드" "$dashboard_file"
+          # Verify page identity and dashboard structure instead of a marketing headline:
+          # the previous Korean title string went stale after the dashboard was rebranded,
+          # which failed this step on every deploy since 2026-07-22.
+          grep -Fq "Smart City GIS" "$dashboard_file"
+          grep -Fq "walkability" "$dashboard_file"

@@ -30,10 +30,10 @@ pip install "smartcity-gis[stats]"     # + PySAL 공간통계
 | 보행성 지수 (Walk Score 적응판) | `walkability.py` | ✅ 구현 | ✅ |
 | Shannon 다양성 · 교차로/인구 밀도 | `walkability.py` | ✅ 구현 | ✅ |
 | 격자 생성 `create_fishnet` | `geometry.py` | ✅ 구현 | ✅ |
-| 2SFCA 접근성 (Luo & Wang 2003) | `accessibility.py` | ✅ 구현 | ✅ (보존법칙) |
+| 2SFCA 접근성 (Luo & Wang 2003) | `accessibility.py` | ✅ 구현 (직선거리 + 네트워크 거리) | ✅ (보존법칙) |
 | Gravity 접근성 모형 | `accessibility.py` | ✅ 구현 | ✅ |
 | Isochrone 등시선 (networkx) | `accessibility.py` | ✅ 구현 | ✅ |
-| 15분 도시 지수 (Moreno 2021) | `accessibility.py` | ✅ 구현 | ✅ |
+| 15분 도시 지수 (Moreno 2021) | `accessibility.py` | ✅ 구현 (직선거리 + 네트워크 거리) | ✅ |
 | 시각화 (PNG/Folium/GeoJSON export) | `visualization.py` | ✅ 구현 | — |
 | **인터랙티브 대시보드** | `docs/dashboard/` | ✅ 구현 | — |
 | OSM POI·보행망 수집 | `fetch_osm_data.py` | ✅ 구현 | 스키마 검증 |
@@ -105,6 +105,7 @@ smart-city-gis/
 │   ├── ARCHITECTURE.md              # 방법론·수식
 │   ├── data_dictionary.md           # 데이터 스키마
 │   ├── crs_reference.md             # 좌표계 가이드
+│   ├── network_distance.md          # 네트워크 거리 접근성 방법론
 │   └── dashboard/index.html         # 인터랙티브 대시보드
 ├── tests/                           # pytest (직선거리·통계 검증)
 ├── requirements.txt
@@ -124,6 +125,33 @@ pytest tests/ -v                     # 검증
 python scripts/fetch_osm_data.py     # OSM 실제 데이터 갱신
 python scripts/build_dashboard.py    # 대시보드 생성
 ```
+
+## 🛣 네트워크 거리 접근성
+
+2SFCA와 15분 도시 지수는 거리 기준을 선택할 수 있습니다. 기본값은 직선거리(Euclidean)이며,
+도로망 그래프를 넘기면 실제 보행 거리로 다시 계산합니다.
+
+```python
+import osmnx as ox
+from smartcity_gis import AccessibilityAnalyzer, fifteen_min_city_score
+
+G = ox.graph_from_place("Gangnam-gu, Seoul, South Korea", network_type="walk")
+analyzer = AccessibilityAnalyzer(network=G)
+
+# 수요(인구) - 공급(용량) 사이의 네트워크 거리 기반 2SFCA
+scores = analyzer.two_sfca(demand_points, supply_points, catchment_minutes=30)
+
+# 거리 표면을 직접 확인 (미터, 도달 불가·cutoff 초과는 inf)
+D = analyzer.network_distance_matrix(demand_points, supply_points, cutoff_m=2250)
+
+# 15분 도시 지수도 네트워크 거리로
+score = fifteen_min_city_score(grid, amenities, network=G)
+```
+
+- `distance_method="auto"`(기본): 네트워크가 있으면 네트워크 거리, 없으면 직선거리
+- `distance_method="straight"`: 직선거리 강제 · `"network"`: 네트워크 거리 강제(그래프 없으면 `ValueError`)
+- 거리 계산은 EPSG:5186 기준이며, 도달 불가·catchment 반경 밖은 가중치 0으로 처리됩니다.
+- 방법론·검증 절차·성능 지침: [`docs/network_distance.md`](docs/network_distance.md)
 
 ## 📄 License
 
@@ -149,7 +177,8 @@ Citation metadata is also machine-readable in [`CITATION.cff`](CITATION.cff).
 Methodology, data schema, and coordinate-system references live in
 [`docs/`](docs/): [ARCHITECTURE.md](docs/ARCHITECTURE.md),
 [data_dictionary.md](docs/data_dictionary.md),
-[crs_reference.md](docs/crs_reference.md).
+[crs_reference.md](docs/crs_reference.md),
+[network_distance.md](docs/network_distance.md).
 
 ## 🤝 Contributing
 

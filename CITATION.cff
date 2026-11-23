@@ -7,8 +7,8 @@ abstract: >-
   15-minute city indices, with reproducible pipelines from OpenStreetMap and
   Korean public data (NSDI, V-World, KOSIS).
 type: software
-version: 0.2.0
-date-released: "2026-11-22"
+version: 0.4.0
+date-released: "2026-11-23"
 license: MIT
 repository-code: "https://github.com/DongsooJung/smart-city-gis"
 url: "https://stargateedu.co.kr/smart-city-gis/"

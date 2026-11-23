@@ -23,7 +23,7 @@ Smart City GIS Analytics
     >>> score = fifteen_min_city_score(grid, amenities)
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 __author__ = "Dongsoo Jung"
 __email__ = "jds068888@gmail.com"
 

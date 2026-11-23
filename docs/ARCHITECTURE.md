@@ -69,8 +69,29 @@ $$d_{ij}^{\text{net}} = \min_{P:\,o_i \to s_j} \sum_{e \in P} \ell_e$$
 
 구현: `AccessibilityAnalyzer.two_sfca(..., distance_method=...)`,
 `AccessibilityAnalyzer.network_distance_matrix(...)`,
-`fifteen_min_city_score(..., network=...)`.
+`fifteen_min_city_score(..., network=...)`,
+`compute_walkability(..., distance_method=...)`.
 방법론·검증 절차는 [`network_distance.md`](network_distance.md).
+
+### 5. 도로망 단절(연결 요소 분리) 처리
+
+도로망은 실제로 여러 연결 컴포넌트로 나뉜다. 시설이 하나도 없는 조각에 붙은 셀은
+거리가 얼마인지와 무관하게 어떤 시설에도 경로가 없으므로, 거리 점수가 0이 된다.
+
+$$\text{isolated}_i = \big[\,\text{comp}(s(o_i)) \cap \mathcal{D} = \varnothing\,\big]$$
+
+여기서 $s(\cdot)$는 최근접 노드 스내핑, $\text{comp}(\cdot)$는 연결 컴포넌트,
+$\mathcal{D}$는 시설(POI) 노드 집합이다.
+
+- 판정 기준은 거리와 무관한 **위상적 구조**다. 1600m 안에 시설이 없지만 같은
+  연결 요소에 시설이 있는 셀은 "산출 불가"가 아니라 낮은 점수다.
+- `NetworkDistanceCalculator.isolated_origins()`가 이 마스크를 계산한다.
+- `compute_walkability(..., distance_method="network")`는 `_network_isolated`
+  컬럼을 함께 반환한다. 점수는 0으로 남지만 집계에서는 제외해야 한다.
+- 강남 대시보드 실측: 15,574노드 중 15,063노드(96.7%)가 최대 연결 요소에 속하고,
+  40개 컴포넌트 중 시설이 없는 조각에 붙은 396개 셀 가운데 16개가 단절 셀이다.
+  이 16개는 집계(평균 보행성 43.1, 충족률 93.9%)에서 제외되고 지도에서는 회색
+  점선으로 표시된다.
 
 ---
 

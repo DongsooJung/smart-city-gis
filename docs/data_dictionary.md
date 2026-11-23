@@ -59,6 +59,7 @@
 |------|------|------|------|
 | `walkability_score` | float | 0–100 | 보행성 종합 점수 |
 | `_subscore_diversity` | float | 0–1 | Shannon 다양성 부분점수 |
+| `_network_isolated` | bool | True/False | `distance_method="network"`에서만 생성. 도로망 단절로 거리 점수를 산출할 수 없는 셀(연결 요소에 시설이 하나도 없음). 점수는 0으로 남지만 집계에서는 제외해야 한다 |
 
 ### 2.2 `two_sfca` / `gravity_model` → `Series`
 `accessibility_2sfca` / `accessibility_gravity` — 수요지 인덱스에 정렬된 접근성 점수.

@@ -99,6 +99,38 @@ score = fifteen_min_city_score(
 
 The score counts, per grid cell, how many essential categories (0–6) have at least one amenity reachable within 15 minutes. With `network=G`, reachability is judged on actual network distance rather than a 1,125 m circle. Expect scores to drop in cells near rivers, rail corridors, and gated complexes — that drop is the point of the analysis.
 
+## Walkability score on network distance
+
+`compute_walkability` accepts the same `distance_method` switch, so the walkability index can be built on real walk paths instead of circles:
+
+```python
+from smartcity_gis import compute_walkability
+
+walk = compute_walkability(grid, amenities, network=G, decay="exponential")
+walk["walkability_score"]        # 0-100, network shortest-path based
+walk["_network_isolated"]         # True where no distance can be computed
+```
+
+In network mode the implementation keeps only the nearest amenity per category and the number of amenities per category, so the working set stays at *cells × categories* instead of the full *cells × amenities* distance matrix.
+
+## Road-network fragments: cells where no score can be computed
+
+Selected highway graphs are rarely a single connected component. A cell whose nearest node sits in a fragment that contains **no** amenity has no path to any facility at all, so its network distance is undefined — not "far away", but unmeasurable. Such cells would silently become `0` and drag every aggregate down, which reads like a real accessibility finding when it is a data artifact.
+
+`NetworkDistanceCalculator.isolated_origins()` detects this topologically — distance-independent, because the criterion is *which component the node belongs to*:
+
+```python
+from smartcity_gis.accessibility import NetworkDistanceCalculator
+
+isolated = NetworkDistanceCalculator(G).isolated_origins(cell_xy, amen_xy)
+```
+
+`compute_walkability(..., distance_method="network")` returns the same information as the `_network_isolated` column. Keep the score at `0` for schema compatibility, but **exclude flagged cells from means, histograms and threshold rates**, and label them on the map as "not computable" rather than "no access".
+
+Real measurement on the published Gangnam dashboard (15,574 nodes, 18,820 edges): the graph splits into **40 components**, with 15,063 nodes (96.7 %) in the largest one. Of 396 grid cells, **16** attach to amenity-free fragments. Aggregates therefore cover 380 cells (mean walkability 43.1, 93.9 % of cells reaching a 15-minute score of 4 or more), and the dashboard ships the flag in `grid.csv` / `grid.geojson` as `network_isolated`.
+
+Note that a cell *inside* a component that does contain amenities but has none within the catchment radius is **not** isolated — that is a genuine low-accessibility result and must stay in the statistics.
+
 ## Validating the 2SFCA conservation property
 
 2SFCA obeys a conservation law: with exactly one demand point and one supply point, both within catchment of each other, the accessibility score equals the supply-to-demand ratio. This is the cheapest end-to-end test of the network pipeline:
@@ -150,3 +182,4 @@ Network accessibility scales poorly if run naively. Practical rules:
 10. A rerun with `catchment_minutes` halved produces no scores above the original run.
 11. Reusing one analyzer across calls gives identical results to building a fresh analyzer (cache consistency).
 12. Performance run uses `cutoff_m` and a trimmed, largest-connected-component graph.
+13. `isolated_origins` flags only amenity-free fragments, and flagged cells are excluded from every published aggregate.

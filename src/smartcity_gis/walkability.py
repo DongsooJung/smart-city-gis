@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 from scipy.spatial import cKDTree
 
+from .accessibility import NetworkDistanceCalculator
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,26 +91,54 @@ def _coords(gdf: gpd.GeoDataFrame, use_centroid: bool = False) -> np.ndarray:
 # ----------------------------------------------------------------------
 # 공개 API
 # ----------------------------------------------------------------------
+def _diversity_from_counts(counts: np.ndarray) -> float:
+    """카테고리별 POI 개수에서 Shannon 다양성 지수 계산.
+
+    `diversity_index`와 동일한 정의를 카테고리 개수 배열로 직접 계산한다
+    (네트워크 거리 경로에서 버퍼 안 POI 목록을 만들지 않고 개수만 유지).
+    """
+    total = float(np.sum(counts))
+    if total <= 0:
+        return 0.0
+    present = np.asarray(counts, dtype=float)[np.asarray(counts) > 0]
+    n = present.size
+    if n <= 1:
+        return 0.0
+    p = present / total
+    h = -np.sum(p * np.log(p))
+    return float(h / np.log(n))
+
+
 def compute_walkability(
     grid: gpd.GeoDataFrame,
     amenities: gpd.GeoDataFrame,
     network=None,
     decay: str = "exponential",
+    distance_method: str = "auto",
 ) -> gpd.GeoDataFrame:
     """
-    그리드 셀별 보행성 지수 계산 (직선거리 기반).
+    그리드 셀별 보행성 지수 계산.
 
-    네트워크 거리(`network`)는 osmnx 그래프가 필요하므로, 현재 구현은
-    직선거리(Euclidean) 기반이다. 네트워크 인자가 주어지면 향후 확장 지점.
+    거리 기준:
+    - `distance_method="straight"`: 직선거리(Euclidean, EPSG:5186 기준). 빠르지만
+      보행 제약을 무시하는 근사.
+    - `distance_method="network"`: 도로망 최단거리(m). 셀에서 각 카테고리의
+      가장 가까운 POI까지의 거리를 실제 보행 경로로 계산한다.
+    - `distance_method="auto"`: network가 있으면 네트워크 거리, 없으면 직선거리.
 
     Args:
         grid: 분석 단위 그리드 (100m 격자 권장)
         amenities: POI GeoDataFrame ['category', 'geometry']
-        network: osmnx 그래프 (현재 미사용, 직선거리로 대체)
+        network: 도로망 그래프 (노드에 x·y, 간선에 length 속성)
         decay: 'linear' | 'exponential' | 'gaussian'
+        distance_method: 'auto' | 'straight' | 'network'
 
     Returns:
-        grid 복사본 + ['walkability_score', '_subscore_diversity'] 컬럼
+        grid 복사본 + ['walkability_score', '_subscore_diversity'] 컬럼.
+        `distance_method="network"`이면 `_network_isolated` bool 컬럼이 추가된다.
+        도로망 단절로 어떤 시설에도 경로가 없는 셀은 점수가 0이 되지만
+        "접근이 없는 지역"이 아니라 "거리 산출 불가"이므로, 집계에서는
+        이 플래그로 제외해야 한다.
     """
     if "category" not in amenities.columns:
         raise ValueError("amenities에 'category' 컬럼이 필요합니다.")
@@ -127,8 +157,15 @@ def compute_walkability(
     amen_xy = _coords(a, use_centroid=False)
     categories = a["category"].to_numpy()
 
-    if network is not None:
-        logger.info("network 인자는 현재 직선거리로 대체 처리됩니다.")
+    if distance_method not in ("auto", "straight", "network"):
+        raise ValueError(
+            f"distance_method는 'auto'|'straight'|'network' 중 하나여야 합니다: {distance_method!r}"
+        )
+    if distance_method == "network" and network is None:
+        raise ValueError("distance_method='network'에는 network 그래프가 필요합니다.")
+    method = "network" if (distance_method == "auto" and network is not None) else distance_method
+    if method == "auto":
+        method = "straight"
 
     max_d = float(max(DECAY_DISTANCES.values()))
     d0 = float(DECAY_DISTANCES["very_close"])
@@ -140,6 +177,25 @@ def compute_walkability(
     if len(amen_xy) == 0:
         result["walkability_score"] = scores
         result["_subscore_diversity"] = diversity
+        return result
+
+    if method == "network":
+        calculator = NetworkDistanceCalculator(network)
+        cat_labels, min_dist, counts = calculator.nearest_by_category(
+            cell_xy, amen_xy, categories, max_d
+        )
+        finite = np.isfinite(min_dist)
+        decay_w = np.zeros_like(min_dist)
+        decay_w[finite] = _decay_weight(min_dist[finite], d0, decay)
+        weights = np.array([POI_WEIGHTS.get(c, 0.0) for c in cat_labels], dtype=float)
+        raw = (decay_w * weights[None, :]).sum(axis=1)
+        scores = np.minimum(100.0, raw / max_possible * 100.0)
+        diversity = np.array([_diversity_from_counts(row) for row in counts], dtype=float)
+        result["walkability_score"] = scores
+        result["_subscore_diversity"] = diversity
+        # 도로망 단절 셀: 어떤 시설에도 경로가 없어 거리 점수를 산출할 수 없다.
+        # 점수는 0으로 남지만 통계에서 제외할 수 있도록 플래그를 함께 준다.
+        result["_network_isolated"] = calculator.isolated_origins(cell_xy, amen_xy)
         return result
 
     tree = cKDTree(amen_xy)

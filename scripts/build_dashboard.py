@@ -77,9 +77,11 @@ def build():
     boundary = make_boundary()
     pois = make_pois()
     grid = create_fishnet(boundary, cell_size=250)
+    graph = make_street_graph()
 
-    # ---- 최신 OSM 단면 점수 계산 ----
+    # ---- 최신 OSM 단면 점수 계산 (도로망 최단거리 기준) ----
     walk_by_year, s15_by_year, mean_by_year = {}, {}, {}
+    isolated = np.zeros(len(grid), dtype=bool)
     for y in YEARS:
         sub = pois
         if len(sub) == 0:
@@ -87,21 +89,24 @@ def build():
             s15_by_year[y] = [0.0] * len(grid)
             mean_by_year[y] = 0.0
             continue
-        w = compute_walkability(grid, sub, decay="exponential")["walkability_score"]
-        s = fifteen_min_city_score(grid, sub)
+        walk_df = compute_walkability(grid, sub, network=graph, decay="exponential")
+        w = walk_df["walkability_score"]
+        s = fifteen_min_city_score(grid, sub, network=graph)
+        isolated = walk_df["_network_isolated"].to_numpy(dtype=bool)
         walk_by_year[y] = [round(float(v), 1) for v in w]
         s15_by_year[y] = [round(float(v), 2) for v in s]
-        mean_by_year[y] = round(float(w.mean()), 1)
+        scored = w.to_numpy(dtype=float)[~isolated]
+        mean_by_year[y] = round(float(scored.mean()), 1) if len(scored) else 0.0
 
     # 최신연도(2026)를 기준 레이어로
     latest = YEARS[-1]
     walk = grid.copy()
     walk["walkability_score"] = walk_by_year[latest]
     walk["score_15min"] = s15_by_year[latest]
+    walk["network_isolated"] = isolated
     walk["cell_id"] = grid["cell_id"].values
 
     # ---- 등시선 (강남역, get_isochrone) ----
-    graph = make_street_graph()
     analyzer = AccessibilityAnalyzer(graph)
     iso = analyzer.get_isochrone(ISO_ORIGIN, trip_times=ISO_TIMES, travel_speed=4.5)
     iso_geo = json.loads(iso.isochrones.to_json())
@@ -109,42 +114,60 @@ def build():
     # ---- 실제 OSM 분석 결과 저장 ----
     boundary.to_file(data_dir / "gangnam_boundary.geojson", driver="GeoJSON")
     pois.to_file(data_dir / "gangnam_pois.geojson", driver="GeoJSON")
-    walk[["cell_id", "walkability_score", "score_15min", "geometry"]].to_file(
+    walk[["cell_id", "walkability_score", "score_15min", "network_isolated", "geometry"]].to_file(
         data_dir / "gangnam_grid_scores.geojson", driver="GeoJSON"
     )
     iso.isochrones.to_file(data_dir / "gangnam_isochrone_gangnam_stn.geojson", driver="GeoJSON")
 
     # ---- 대시보드 JSON ----
     grid_geo = json.loads(
-        walk[["cell_id", "walkability_score", "score_15min", "geometry"]].to_crs(WGS84).to_json()
+        walk[["cell_id", "walkability_score", "score_15min", "network_isolated", "geometry"]].to_crs(WGS84).to_json()
     )
     pois_geo = json.loads(pois.to_crs(WGS84).to_json())
 
-    ws = np.array(walk_by_year[latest])
+    ws_all = np.array(walk_by_year[latest])
+    s15_all = np.array(s15_by_year[latest])
+    scored_mask = ~isolated
+    ws = ws_all[scored_mask]
+    s15 = s15_all[scored_mask]
+    comp_sizes = sorted((len(c) for c in nx.connected_components(graph)), reverse=True)
     stats = {
         "n_cells": int(len(walk)),
+        "n_cells_scored": int(scored_mask.sum()),
+        "isolated_cells": int(isolated.sum()),
         "n_pois": int(len(pois)),
         "walk_mean": mean_by_year[latest],
         "walk_max": round(float(ws.max()), 1),
-        "score15_mean": round(float(np.mean(s15_by_year[latest])), 2),
-        "pct_15min_ok": round(float(np.mean(np.array(s15_by_year[latest]) >= 4) * 100), 1),
+        "score15_mean": round(float(np.mean(s15)), 2),
+        "pct_15min_ok": round(float(np.mean(s15 >= 4) * 100), 1),
         "cat_counts": pois["category"].value_counts().to_dict(),
         "hist": np.histogram(ws, bins=[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100])[0].tolist(),
+        "graph": {
+            "nodes": int(graph.number_of_nodes()),
+            "edges": int(graph.number_of_edges()),
+            "components": len(comp_sizes),
+            "largest_component_nodes": int(comp_sizes[0]),
+            "largest_component_share_pct": round(100 * comp_sizes[0] / graph.number_of_nodes(), 1),
+        },
     }
-    if not np.isfinite(ws).all() or ((ws<0)|(ws>100)).any():raise ValueError('Invalid walkability score')
+    if not np.isfinite(ws_all).all() or ((ws_all<0)|(ws_all>100)).any():raise ValueError('Invalid walkability score')
     if not all(0<=v<=6 for v in s15_by_year[latest]):raise ValueError('Invalid six-category score')
-    if sum(stats['cat_counts'].values())!=stats['n_pois'] or sum(stats['hist'])!=stats['n_cells']:raise ValueError('Totals do not reconcile')
+    if sum(stats['cat_counts'].values())!=stats['n_pois'] or sum(stats['hist'])!=stats['n_cells_scored']:raise ValueError('Totals do not reconcile')
+    frag_note = (f"선택 도로망은 연결 컴포넌트 {stats['graph']['components']}개로 나뉘며 "
+                 f"노드의 {stats['graph']['largest_component_share_pct']}%만 최대 연결 요소에 속합니다. "
+                 f"시설이 하나도 없는 단절 조각에 붙은 셀 {int(isolated.sum())}개는 거리 점수를 산출할 수 없어 "
+                 f"0점으로 두고 통계에서는 제외했습니다. 지도는 회색 점도로 따로 표시합니다.")
     metadata={**source_metadata,'builtAt':built_at,'observationDate':None,
-              'analysis':{'gridMeters':250,'distanceCrs':'EPSG:5186','coordinateCrs':'EPSG:4326','scoreDistance':'Euclidean, not network walking distance','radiusMeters15MinuteScore':1125,'assumedSpeedKmh':4.5,'meanWeighting':'unweighted cells; edge cells intersect study rectangle','isochrone':'undirected selected-highway graph, reachable-node convex hull'},
-              'limitations':['강남역 일대 직사각형이며 강남구 행정경계가 아닙니다.','OSM 태그가 있는 노드만 사용하며 시설 전수·way/relation 시설·현장 영업 여부는 미확인입니다.','보행성·6개 생활분류 점수는 직선거리 기반입니다. 15분은 4.5km/h로 환산한 반경1125m 가정입니다.','등시선은 선택 도로망 도달노드의 볼록껍질 근사입니다. 보행 통행권·횡단·출입구 연결을 전수 검증하지 않았습니다.','분석 경계 밖 POI 누락에 따른 가장자리 효과가 있습니다.','POI 식별·범위와 도로 중복 제거가 달라 이전 저장본과 증가율·시계열 비교를 하지 않습니다.']}
+              'analysis':{'gridMeters':250,'distanceCrs':'EPSG:5186','coordinateCrs':'EPSG:4326','scoreDistance':'Network shortest-path walking distance on the selected highway graph (undirected)','networkBudgetMeters15MinuteScore':1125,'assumedSpeedKmh':4.5,'meanWeighting':'unweighted cells with a usable network route; road-network isolated cells are excluded from aggregates','isochrone':'undirected selected-highway graph, reachable-node convex hull','networkComponents':stats['graph']['components'],'networkLargestComponentNodes':stats['graph']['largest_component_nodes'],'networkLargestComponentSharePct':stats['graph']['largest_component_share_pct'],'isolatedCellsExcluded':int(isolated.sum()),'scoredCells':int(scored_mask.sum())},
+              'limitations':['강남역 일대 직사각형이며 강남구 행정경계가 아닙니다.','OSM 태그가 있는 노드만 사용하며 시설 전수·way/relation 시설·현장 영업 여부는 미확인입니다.','보행성·6개 생활분류 점수는 선택 도로망의 최단경로 거리(무방향) 기준입니다. 15분은 4.5km/h로 환산한 1125m 보행 예산 가정이며 실제 도보시간 검증값이 아닙니다.',frag_note,'등시선은 선택 도로망 도달노드의 볼록껍질 근사입니다. 보행 통행권·횡단·출입구 연결을 전수 검증하지 않았습니다.','분석 경계 밖 POI 누락에 따른 가장자리 효과가 있습니다.','POI 식별·범위와 도로 중복 제거가 달라 이전 저장본과 증가율·시계열 비교를 하지 않습니다.']}
     public_data=dash_dir/'data';public_data.mkdir(exist_ok=True)
     for name,obj in [('metadata.json',metadata),('stats.json',stats),('grid.geojson',grid_geo),('pois.geojson',pois_geo),('isochrones.geojson',iso_geo)]:
         (public_data/name).write_text(json.dumps(obj,ensure_ascii=False,indent=2 if name in ['metadata.json','stats.json'] else None)+'\n',encoding='utf8')
     shutil.copyfile(data_dir/'gangnam_walk_graph.json',public_data/'walk-graph.json')
     with (public_data/'grid.csv').open('w',newline='',encoding='utf8') as file:
-        writer=csv.writer(file);writer.writerow(['cell_id','walkability_score','score_15min','source_collected_at','file_generated_at','metric_basis'])
+        writer=csv.writer(file);writer.writerow(['cell_id','walkability_score','score_15min','network_isolated','source_collected_at','file_generated_at','metric_basis'])
         for row in grid_geo['features']:
-            props=row['properties'];writer.writerow([props['cell_id'],props['walkability_score'],props['score_15min'],source_metadata['fetchedAt'],built_at,'euclidean_osm_tagged_nodes'])
+            props=row['properties'];writer.writerow([props['cell_id'],props['walkability_score'],props['score_15min'],str(bool(props['network_isolated'])).lower(),source_metadata['fetchedAt'],built_at,'network_shortest_path_osm_tagged_nodes'])
 
     html = HTML_TEMPLATE
     repl = {
@@ -164,6 +187,7 @@ def build():
     (dash_dir / "index.html").write_text(html, encoding="utf-8")
 
     print(f"grid cells : {len(walk)}")
+    print(f"isolated   : {int(isolated.sum())} cells (도로망 단절, 집계 제외)")
     print(f"pois       : {len(pois)}  (연도범위 {min(YEARS)}-{max(YEARS)})")
     print("연도별 평균 보행성:", {y: mean_by_year[y] for y in YEARS})
     print(f"isochrone  : {len(iso.isochrones)} bands @ 강남역 {ISO_TIMES}min")
@@ -227,7 +251,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div id="app">
   <header>
     <h1>강남역 일대 보행성 · 생활 접근성</h1>
-    <span class="sub">OSM 태그 노드 단면 · 직선거리 기반 점수 · 도로망 근사권</span>
+    <span class="sub">OSM 태그 노드 단면 · 도로망 최단거리 기반 점수 · 등시선 근사</span>
     <span class="pill" id="modePill">보행성 지수</span>
     <a class="portal-link" href="https://stargateedu.co.kr/research/" target="_blank" rel="noopener">← STARGATE 연구 대시보드</a>
   </header>
@@ -253,7 +277,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <h3 id="source-title">자료 기준·계산 범위</h3>
       <p id="source-dates"></p><p id="source-database"></p>
       <p>강남역 주변 직사각형(동경127.020~127.080·북위37.480~37.520)입니다. 강남구 행정경계가 아닙니다. OSM에 태그가 있는 노드만 세며 시설 전수나 실제 영업 여부를 뜻하지 않습니다.</p>
-      <p>보행성·생활 접근 점수는 직선거리 기반입니다. 15분은 속도4.5km/h·반경1125m 가정이며 실제 도보시간을 검증한 값이 아닙니다. 경계 밖 POI 누락의 영향과 원자료 갱신 지연이 있습니다.</p>
+      <p>보행성·생활 접근 점수는 선택 도로망의 최단경로 거리 기준입니다. 15분은 속도4.5km/h·1125m 보행 예산 가정이며 실제 도보시간을 검증한 값이 아닙니다. 경계 밖 POI 누락의 영향과 원자료 갱신 지연이 있습니다.</p>
+      <p id="frag-note"></p>
       <p>등시선은 선택 도로망 도달노드의 볼록껍질 근사입니다. 통행권·횡단·출입구 연결은 미확인입니다. 이전 저장본과 수집 범위·중복 제거 방식이 달라 증가율로 비교하지 않습니다.</p>
       <div class="downloads"><a href="data/metadata.json" download>출처·수집시각 JSON</a><a href="data/grid.csv" download>격자 CSV</a><a href="data/grid.geojson" download>격자 GeoJSON</a><a href="data/pois.geojson" download>POI 노드</a><a href="data/walk-graph.json" download>도로망</a><a href="data/isochrones.geojson" download>근사권</a><a href="data/stats.json" download>요약 JSON</a></div>
       <p><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors · ODbL</a></p>
@@ -295,6 +320,8 @@ const MEAN_BY_YEAR = __MEAN_BY_YEAR__;
 const YEARS = __YEARS__;
 const ORIGIN = __ORIGIN__;
 const META = __METADATA__;
+const ISOLATED = new Set(GRID.features.filter(f=>f.properties.network_isolated).map(f=>f.properties.cell_id));
+const ISOLATED_GRAY = '#5b6672';
 const safeText=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 const CAT_COLORS = {
@@ -328,14 +355,23 @@ function walkVal(i){ return WALK_BY_YEAR[yearKey()][i]; }
 function s15Val(i){ return S15_BY_YEAR[yearKey()][i]; }
 function valOf(p){ const i=p.cell_id; return mode==='walk'? walkVal(i) : s15Val(i); }
 function colorOf(p){ return mode==='walk'? rampWalk(walkVal(p.cell_id)) : ramp15(s15Val(p.cell_id)); }
+function isIso(p){ return ISOLATED.has(p.cell_id); }
+function cellStyle(f){
+  const p=f.properties;
+  if(isIso(p)) return {fillColor:ISOLATED_GRAY,weight:.7,color:'#8fa0b0',fillOpacity:.35,dashArray:'3,2'};
+  return {fillColor:colorOf(p),weight:.4,color:'#0f1419',fillOpacity:.72};
+}
 
 const gridLayer = L.geoJSON(GRID,{
-  style:f=>({fillColor:colorOf(f.properties),weight:.4,color:'#0f1419',fillOpacity:.72}),
+  style:cellStyle,
   onEachFeature:(f,l)=>{
     l.on('click',()=>{const i=f.properties.cell_id;
-      l.bindPopup(`<b>셀 #${i}</b> · ${META.fetchedAt.slice(0,10)} 수집<br>보행성: <b>${walkVal(i)}</b>/100<br>직선거리 생활 접근: <b>${s15Val(i)}</b>/6`).openPopup();});
+      const body = isIso(f.properties)
+        ? '보행성: <b>산출 불가</b><br>도로망 거리 생활 접근: <b>산출 불가</b><br><span style="color:#8fa0b0">도로망이 단절된 조각이라 거리 점수를 계산할 수 없는 셀입니다.</span>'
+        : `보행성: <b>${walkVal(i)}</b>/100<br>도로망 거리 생활 접근: <b>${s15Val(i)}</b>/6`;
+      l.bindPopup(`<b>셀 #${i}</b> · ${META.fetchedAt.slice(0,10)} 수집<br>${body}`).openPopup();});
     l.on('mouseover',()=>l.setStyle({weight:1.6,color:'#fff'}));
-    l.on('mouseout',()=>l.setStyle({weight:.4,color:'#0f1419'}));
+    l.on('mouseout',()=>l.setStyle(cellStyle(f)));
   }
 }).addTo(map);
 
@@ -367,13 +403,13 @@ POIS.features.forEach(f=>{
   if(poiLayers[cat]) poiLayers[cat].addLayer(m);
 });
 
-function restyleGrid(){ gridLayer.setStyle(f=>({fillColor:colorOf(f.properties),weight:.4,color:'#0f1419',fillOpacity:.72})); }
+function restyleGrid(){ gridLayer.setStyle(cellStyle); }
 
 function setMode(m){
   mode=m;
   document.getElementById('btnWalk').classList.toggle('active',m==='walk');
   document.getElementById('btn15').classList.toggle('active',m==='s15');
-  document.getElementById('modePill').textContent = m==='walk'?'보행성 지수':'직선거리 생활 접근';
+  document.getElementById('modePill').textContent = m==='walk'?'보행성 지수':'도로망 거리 생활 접근';
   restyleGrid(); renderLegend(); renderHist();
 }
 
@@ -389,17 +425,20 @@ function renderLegend(){
   const rf = mode==='walk'? rampWalk : ramp15;
   for(let i=0;i<stops.length-1;i++)
     rows.push(`<div class="row"><span class="sw" style="background:${rf((stops[i]+stops[i+1])/2)}"></span>${stops[i]}–${stops[i+1]}</div>`);
+  if(ISOLATED.size) rows.push(`<div class="row"><span class="sw" style="background:${ISOLATED_GRAY};border:1px dashed #8fa0b0"></span>도로망 단절(산출 불가) ${ISOLATED.size}개</div>`);
   el.innerHTML=rows.join('');
 }
 
 function renderStats(){
   const y=String(YEARS[yearIdx]);
   const wy=WALK_BY_YEAR[y], sy=S15_BY_YEAR[y];
+  const scored=w=>w.filter((v,i)=>!ISOLATED.has(i));
+  const wsc=scored(wy), ssc=scored(sy);
   const mean=MEAN_BY_YEAR[y];
-  const mx=Math.max(...wy).toFixed(1);
-  const s15m=(sy.reduce((a,b)=>a+b,0)/sy.length).toFixed(2);
-  const ok=(sy.filter(v=>v>=4).length/sy.length*100).toFixed(1);
-  const cards=[[mean,'평균 보행성'],[mx,'최고 보행성'],[s15m,'평균 생활 접근'],[ok+'%','직선거리 충족셀(≥4)'],[STATS.n_cells,'격자수'],[STATS.n_pois,'표본 POI 노드']];
+  const mx=Math.max(...wsc).toFixed(1);
+  const s15m=(ssc.reduce((a,b)=>a+b,0)/ssc.length).toFixed(2);
+  const ok=(ssc.filter(v=>v>=4).length/ssc.length*100).toFixed(1);
+  const cards=[[mean,'평균 보행성'],[mx,'최고 보행성'],[s15m,'평균 생활 접근'],[ok+'%','도로망 거리 충족셀(≥4)'],[`${STATS.n_cells_scored}/${STATS.n_cells}`,'격자수(산출/전체)'],[STATS.n_pois,'표본 POI 노드'],[STATS.isolated_cells,'도로망 단절 셀(제외)']];
   document.getElementById('stats').innerHTML=cards.map(c=>`<div class="stat"><div class="v">${c[0]}</div><div class="l">${c[1]}</div></div>`).join('');
 }
 
@@ -407,7 +446,7 @@ let histChart=null;
 function renderHist(){
   const y=String(YEARS[yearIdx]); const wy=WALK_BY_YEAR[y];
   const bins=new Array(10).fill(0);
-  wy.forEach(v=>{let b=Math.min(9,Math.floor(v/10)); bins[b]++;});
+  wy.forEach((v,i)=>{if(ISOLATED.has(i))return; let b=Math.min(9,Math.floor(v/10)); bins[b]++;});
   const labels=Array.from({length:10},(_,i)=>i*10+'–'+((i+1)*10));
   if(histChart) histChart.destroy();
   histChart=new Chart(document.getElementById('hist'),{type:'bar',
@@ -429,6 +468,7 @@ function togglePoi(cb){const cat=cb.dataset.cat; if(cb.checked) poiLayers[cat].a
 // init
 document.getElementById('source-dates').textContent='수집 완료(UTC) '+META.fetchedAt+' · 계산 파일 생성(UTC) '+META.builtAt+' · 현장 관측일 미확인';
 document.getElementById('source-database').textContent='원자료 DB 기준(UTC): '+([...new Set((META.sourceResponses||[]).map(r=>r.osmBaseTimestamp))].join(' / ')||'이전 수집본 미기록')+' · 응답들의 수집 단면이며 동시 관측 전수조사가 아닙니다.';
+document.getElementById('frag-note').textContent='선택 도로망은 연결 컴포넌트 '+(META.analysis.networkComponents)+'개로 나뉘며 노드의 '+META.analysis.networkLargestComponentSharePct+'%만 최대 연결 요소에 속합니다. 시설이 하나도 없는 단절 조각의 셀 '+(META.analysis.isolatedCellsExcluded||0)+'개는 거리 점수를 산출할 수 없어 0점으로 두고 통계에서 제외했습니다(지도 회색 점선).';
 renderLegend(); renderIsoLegend(); renderStats(); renderHist(); renderPoiToggles(); refreshYear();
 map.fitBounds(gridLayer.getBounds(),{padding:[20,20]});
 </script>

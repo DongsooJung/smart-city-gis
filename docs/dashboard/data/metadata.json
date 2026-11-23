@@ -57,21 +57,27 @@
   "methodVersion": "osm-node-ids-rectangle-v2",
   "comparability": "Previous coordinate/category-deduplicated counts are not a comparable time series.",
   "graphLimitations": "Undirected selected-highway graph; foot/access restrictions, crossings and connectivity to actual entrances not verified.",
-  "builtAt": "2026-10-31T06:31:31.274344+00:00",
+  "builtAt": "2026-11-23T02:26:49.751894+00:00",
   "analysis": {
     "gridMeters": 250,
     "distanceCrs": "EPSG:5186",
     "coordinateCrs": "EPSG:4326",
-    "scoreDistance": "Euclidean, not network walking distance",
-    "radiusMeters15MinuteScore": 1125,
+    "scoreDistance": "Network shortest-path walking distance on the selected highway graph (undirected)",
+    "networkBudgetMeters15MinuteScore": 1125,
     "assumedSpeedKmh": 4.5,
-    "meanWeighting": "unweighted cells; edge cells intersect study rectangle",
-    "isochrone": "undirected selected-highway graph, reachable-node convex hull"
+    "meanWeighting": "unweighted cells with a usable network route; road-network isolated cells are excluded from aggregates",
+    "isochrone": "undirected selected-highway graph, reachable-node convex hull",
+    "networkComponents": 40,
+    "networkLargestComponentNodes": 15063,
+    "networkLargestComponentSharePct": 96.7,
+    "isolatedCellsExcluded": 16,
+    "scoredCells": 380
   },
   "limitations": [
     "강남역 일대 직사각형이며 강남구 행정경계가 아닙니다.",
     "OSM 태그가 있는 노드만 사용하며 시설 전수·way/relation 시설·현장 영업 여부는 미확인입니다.",
-    "보행성·6개 생활분류 점수는 직선거리 기반입니다. 15분은 4.5km/h로 환산한 반경1125m 가정입니다.",
+    "보행성·6개 생활분류 점수는 선택 도로망의 최단경로 거리(무방향) 기준입니다. 15분은 4.5km/h로 환산한 1125m 보행 예산 가정이며 실제 도보시간 검증값이 아닙니다.",
+    "선택 도로망은 연결 컴포넌트 40개로 나뉘며 노드의 96.7%만 최대 연결 요소에 속합니다. 시설이 하나도 없는 단절 조각에 붙은 셀 16개는 거리 점수를 산출할 수 없어 0점으로 두고 통계에서는 제외했습니다. 지도는 회색 점도로 따로 표시합니다.",
     "등시선은 선택 도로망 도달노드의 볼록껍질 근사입니다. 보행 통행권·횡단·출입구 연결을 전수 검증하지 않았습니다.",
     "분석 경계 밖 POI 누락에 따른 가장자리 효과가 있습니다.",
     "POI 식별·범위와 도로 중복 제거가 달라 이전 저장본과 증가율·시계열 비교를 하지 않습니다."

@@ -212,6 +212,95 @@ class NetworkDistanceCalculator:
             out[row] = np.isin(dest_nodes, list(reach))
         return out
 
+    def nearest_by_category(
+        self,
+        origins_xy: np.ndarray,
+        destinations_xy: np.ndarray,
+        categories: Sequence[str],
+        cutoff_m: float,
+    ) -> tuple[list[str], np.ndarray, np.ndarray]:
+        """카테고리별 최소 네트워크 거리와 POI 개수.
+
+        보행성 지수처럼 "각 셀이 각 카테고리에서 가장 가까운 POI까지의 거리"만
+        필요한 경우에 쓴다. 전체 (셀 × POI) 거리 행렬을 만들지 않아
+        메모리가 셀 × 카테고리 크기로 유지된다.
+
+        Returns:
+            (categories, min_dist, counts) —
+            min_dist는 (n_origins, n_categories) 최소 거리(m, 미도달은 inf),
+            counts는 같은 모양의 POI 개수.
+        """
+        import networkx as nx
+
+        n_o, n_d = len(origins_xy), len(destinations_xy)
+        cat_labels = list(dict.fromkeys(categories))
+        cat_index = {c: i for i, c in enumerate(cat_labels)}
+        min_dist = np.full((n_o, len(cat_labels)), np.inf, dtype=float)
+        counts = np.zeros((n_o, len(cat_labels)), dtype=int)
+        if n_o == 0 or n_d == 0:
+            return cat_labels, min_dist, counts
+
+        origin_nodes = self.snap(origins_xy)
+        dest_nodes = self.snap(destinations_xy)
+
+        dest_by_node: dict = {}
+        for j, node in enumerate(dest_nodes):
+            dest_by_node.setdefault(node, []).append(j)
+
+        for row, origin in enumerate(origin_nodes):
+            lengths = nx.single_source_dijkstra_path_length(
+                self.network, origin, cutoff=float(cutoff_m), weight=self.edge_weight
+            )
+            if not lengths:
+                continue
+            for node, dist in lengths.items():
+                js = dest_by_node.get(node)
+                if not js:
+                    continue
+                for j in js:
+                    col = cat_index[categories[j]]
+                    min_dist[row, col] = min(min_dist[row, col], dist)
+                    counts[row, col] += 1
+        return cat_labels, min_dist, counts
+
+    def isolated_origins(
+        self,
+        origins_xy: np.ndarray,
+        destinations_xy: np.ndarray,
+    ) -> np.ndarray:
+        """도로망 단절로 시설에 도달할 수 없는 출발점 표시.
+
+        출발점을 스내핑한 노드가 속한 연결 컴포넌트에 도착점(시설) 노드가
+        하나도 없으면 `True`다. 이런 출발점은 거리와 상관없이 어떤 시설에도
+        경로가 없으므로, 거리 기반 점수(보행성·15분 도시)는 "접근이 없다"가
+        아니라 "산출 불가"로 다루어야 한다.
+
+        Args:
+            origins_xy: (N,2) 미터좌표
+            destinations_xy: (M,2) 미터좌표
+
+        Returns:
+            (N,) bool ndarray — 단절로 산출할 수 없는 출발점
+        """
+        import networkx as nx
+
+        n_o = len(origins_xy)
+        if n_o == 0 or len(destinations_xy) == 0:
+            return np.zeros(n_o, dtype=bool)
+
+        origin_nodes = self.snap(origins_xy)
+        dest_nodes = set(self.snap(destinations_xy).tolist())
+
+        comp_of: dict = {}
+        for idx, comp in enumerate(nx.connected_components(self.network)):
+            for node in comp:
+                comp_of[node] = idx
+        comps_with_dest = {comp_of[n] for n in dest_nodes if n in comp_of}
+        return np.array(
+            [comp_of.get(n, -1) not in comps_with_dest for n in origin_nodes],
+            dtype=bool,
+        )
+
 
 def _lonlat_to_metric(lon: float, lat: float) -> tuple[float, float]:
     """단일 경위도점 → 미터(5186) 좌표."""
@@ -486,7 +575,7 @@ def fifteen_min_city_score(
     Args:
         grid: 분석 격자
         amenities: ['category','geometry'] POI
-        network: (선택) 도로망 그래프. 현재는 직선거리 대체.
+        network: (선택) 도로망 그래프. `distance_method="auto"`에서 네트워크 거리로 전환된다.
         minutes: 도달 임계(분)
         travel_speed: 도보 속도(km/h)
         essential_categories: {그룹명: [category,...]} 매핑 (기본 6대 카테고리)

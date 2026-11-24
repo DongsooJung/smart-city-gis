@@ -166,10 +166,9 @@ If you use this library in research or policy analysis, please cite it:
 @software{smartcitygis2026,
   author    = {Jung, Dongsoo},
   title     = {smart-city-gis: Urban accessibility analytics for Korean smart city planning},
-  version   = {0.2.0},
+  version   = {0.4.0},
   year      = {2026},
   publisher = {GitHub},
-  doi       = {10.5281/zenodo.XXXXXXX},
   url       = {https://github.com/DongsooJung/smart-city-gis}
 }
 ```
